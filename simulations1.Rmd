@@ -1,0 +1,777 @@
+---
+title: "Matching Simulations with uniform distributions"
+author: "Laura Jansen-Storbacka"
+date: "4/19/2022"
+
+output:
+  pdf_document:
+    fig_caption: yes        
+    includes:  
+      in_header: my_header.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+```
+
+```{r,message=FALSE}
+source("matching_simulation_functions.R")
+library(ggplot2)
+library(MatchIt)
+library("lmtest")
+library("sandwich")
+library("boot")
+
+```
+
+### How the simulation works 
+* the function g.x uses the create data and the get estimate functions
+* it performs M Monte Carlo simulations 
+* a parameter of g.x is selected to be varied
+* then mapply is used to perform M simulations for each of the variations
+
+The g.x function has 3 parts, it gives, for each parameter variation
+* 1. a vector of length m of estimated treatment effects 
+* 2. a vector of length m of the numbers of controls used (n unique controls used)
+* 3. a vector of length m of the number of discarded treatment units (0 when not using calipers)
+  
+
+```{r, include=FALSE}
+### Simulation example 
+### (Since this is without replacement and without caliper, the number of controls = n and the discards = 0)
+set.seed(28)
+m<-2
+n<- 1:4
+g.m <- mapply(g.x,m=m,n=n)
+g.m
+dim(g.m) <- c(3,m,length(n))
+g.m
+avg <- apply(g.m,c(1,3),mean)
+vai1 <-apply(g.m,c(1,3),var)
+est.1 <-avg[1,]
+est.1
+bias.1 <- est.1-1
+bias.1
+n_control <- avg[2,]
+n_control/n # gives the proportion of controls used
+discards_treated <- avg[3,]
+discards_treated/n # gives the proportion discarded
+```
+#SAMPLE SIZE
+#### Simulations - without - n -unif
+estimated treatment effects (ATT) + bias for m= 1000 MC samples for each of n= sample sizes 1:100, without replacement, no calipers
+
+CHECK VARIANCE HERE, WHY IS IT THE SAME???
+
+
+
+```{r MC_samplesize_without, cache=TRUE, echo=FALSE}
+### simulation 1. vary sample size, without replacement, caliper = false
+
+set.seed(18)
+reps <- 1000
+n=seq(1,100,1)
+
+m.1<-mapply(g.x,m=reps,n=n)
+dim(m.1) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.1 <-apply(m.1,c(1,3),mean)[1,]
+bias.1 <- est.1-1                                #vector of biases for each sample size
+var.1 <- apply(m.1,c(1,3),var)[1,]               #vector of variances for each n
+mse.1 <- var.1 + bias.1^2
+
+prop_cont.1 <- apply(m.1,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.1 <- apply(m.1,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### Simulations - with - n - unif
+
+
+```{r MC_samplesize_with, cache=TRUE, echo=FALSE}
+### simulation 2. vary sample size, raplace = true, caliper = false
+set.seed(18)
+reps <- 1000
+n=seq(1,100,1)
+
+m.2<-mapply(g.x,m=reps,n=n,replace=TRUE)
+dim(m.2) <- c(3,reps,length(n)) # change dimensions from list to 3d array
+
+est.2 <-apply(m.2,c(1,3),mean)[1,]
+bias.2 <- est.2-1  #vector of biases for each sample size
+var.2 <- apply(m.2,c(1,3),var)[1,] #vector of variances for each sample size
+mse.2 <- var.2 + bias.2^2
+
+prop_cont.2 <- apply(m.2,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.2 <- apply(m.2,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+```
+
+#### Simulations - caliper - n - unif
+
+```{r MC_caliper_samplesize, cache=TRUE, echo=FALSE}
+### simulation 3. vary n, caliper = true, replace = false
+set.seed(18)
+reps <- 1000
+n <- seq(10,100,1)
+
+m.3<-mapply(g.x,m=reps,n=n,replace=FALSE, distance = "logit", caliper = 0.3)
+dim(m.3) <- c(3,reps,length(n)) # change dimensions from list to 3d array
+
+est.3 <-apply(m.3,c(1,3),mean)[1,]
+bias.3 <- (est.3)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.3 <- apply(m.3,c(1,3),var)[1,] #vector of variances for each sample size
+mse.3 <- var.3 + (bias.3)^2
+
+prop_cont.3 <- apply(m.3,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.3 <- apply(m.3,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+bias.3 <- c(rep(NA,9), bias.3) # for plotting, add NAs since the sequence starts later
+var.3 <- c(rep(NA,9),var.3)
+mse.3 <- c(rep(NA,9),mse.3)
+```
+
+
+
+
+
+#### Plotting Bias  - n- unif
+As expected, bias declines with the treated sample size at first and then levels off. When a caliper is used the bias is consistent, however, due to potential discards the actual sample size will be lower here, so the variance will be higher. 
+
+
+```{r, bias_n_unif, echo=FALSE}
+plot(bias.2, type = "l", col = "red",ylab="Bias",xlab = "Sample Size of Treated",ylim = c(0,0.25))
+lines(bias.1, type = "l", col = "steelblue")
+lines(bias.3, type = "l", col = "green")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  pch = 15) 
+
+```
+
+
+
+#### Plotting Variance - n- unif
+
+The variance is higher for treatment effect estimates made using matches sampled with replacement. 
+
+```{r unif_variance_samplesize, echo=FALSE}
+n<- seq(1,100,1)
+
+plot(n,var.2, type = "l", col = "red2",ylab="Variance",xlab = "Sample Size of Treated",ylim = c(0,0.12))
+lines(var.1, type = "l", col = "blue3")
+lines(var.3, type = "l", col = "green3")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("blue", "red2", "green3"),
+  pch = 15) 
+
+```
+
+
+
+#### Plotting MSE - n - unif
+this combines the results of the variance and squared bias. Consequently we see the estimated treatment effect closest to the true treatment effect is found using teh caliper matches. However it must be noted that this effect is only for those treated not discarded, and it is not given that the effect can be generalised to the treated that are not matched.  
+
+```{r mse_unif_n, echo=FALSE}
+plot(mse.2, type = "l", col = "red2",ylab="MSE",xlab = "Sample Size of Treated ",ylim = c(0,0.09))
+lines(mse.1, type = "l", col = "steelblue")
+lines(mse.3, type = "l", col = "green3")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red2", "green3"),
+  pch = 15) 
+
+```
+
+#### Plot - discard treat (caliper)- n - unif 
+Plot of discarded treated proportions as n increases (caliper = 0.3), uniform data
+As n increases, the proportion of treated units discarded when matching with a caliper decreases
+
+
+```{r unif_discarded_treat_n, echo=FALSE}
+sample_size<- 10:100
+plot(sample_size,discard_treat.3, type ="l", ylim = c(0,0.24), col = "steelblue", lwd = 2, ylab = "Proportion of Treated Discarded", xlab = "Sample Size")
+abline(h=seq(0.05,0.25,0.05),lty="dotted")
+
+
+```
+
+
+
+
+#### Plot unique controls (with replacement) - n- inif
+
+Plot of unique controls used (proportion of total treated) as n increases, for ratio = 2, with replacement
+
+```{r, echo=FALSE}
+x <- 1:100
+plot(x,prop_cont.2, type = "l", ylim = c(0,1), ylab = "Proportion of Controls Matched", 
+     xlab = "Sample Size of Treated", col="steelblue", lwd=2)
+```
+
+
+
+# RATIO
+
+#### Simulation - without - ratio -unif
+```{r MC_ratios, cache = TRUE, echo=FALSE }
+# changing ratios of control to treated
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.4<-mapply(g.x, m=reps, n=n, ratio = ratios, replace=FALSE)
+dim(m.4) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.4 <-apply(m.4,c(1,3),mean)[1,]
+bias.4 <- (est.4)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.4 <- apply(m.4,c(1,3),var)[1,] #vector of variances for each sample size
+mse.4 <- var.4 + (bias.4)^2
+
+prop_cont.4 <- apply(m.4,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.4 <- apply(m.4,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### Simulation - with - ratio - unif
+
+```{r mc_ratio_unif_with, cache=TRUE, echo=FALSE}
+# MC simulation with replacement, no calipers, n = 20, different ratios
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.5<-mapply(g.x, m=reps, n=n, ratio = ratios, replace=TRUE)
+dim(m.5) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.5 <-apply(m.5,c(1,3),mean)[1,]
+bias.5 <- (est.5)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.5 <- apply(m.5,c(1,3),var)[1,] #vector of variances for each sample size
+mse.5 <- var.5 + (bias.5)^2
+
+prop_cont.5 <- apply(m.5,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.5 <- apply(m.5,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### Simulation - caliper 0.3 - ratio - unif
+
+```{r MC_ratios_caliper, cache=TRUE, echo=FALSE}
+### Simulation 6 - with replacement, caliper = 0.3, different ratios
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.6<-mapply(g.x, m=reps, n=n, ratio = ratios, replace=FALSE, distance = "logit", caliper = 0.3)
+dim(m.6) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.6 <-apply(m.6,c(1,3),mean)[1,]
+bias.6 <- (est.6)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.6 <- apply(m.6,c(1,3),var)[1,] #vector of variances for each sample size
+mse.6 <- var.6 + (bias.6)^2
+
+prop_cont.6 <- apply(m.6,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.6 <- apply(m.6,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### Plotting bias - ratios - unif
+
+```{r, echo=FALSE}
+plot(bias.4, type = "l", col = "steelblue",ylab="Bias",
+     xlab = "Ratio of Control:Treated",ylim = c(0,0.3))
+lines(bias.5, type = "l", col = "red")
+lines(bias.6, type = "l", col = "green")
+
+abline(h=0,lty="dotted",col="grey")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),lwd=2
+) 
+
+```
+
+
+
+####Plotting variance - ratios - unif
+
+```{r, echo=FALSE}
+plot(var.4, type = "l", col = "steelblue",ylab="Variance",
+     xlab = "Ratio of Control:Treated",ylim = c(0,0.05))
+lines(var.5, type = "l", col = "red")
+lines(var.6, type = "l", col = "green")
+
+abline(h=0,lty="dotted",col="grey")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2)
+
+```
+####Plotting MSE - ratios - unif
+
+
+```{r, echo=FALSE}
+plot(mse.4, type = "l", col = "steelblue",ylab="Mean Squared Error",
+     xlab = "Ratio of Control:Treated",ylim = c(0,0.08))
+lines(mse.5, type = "l", col = "red")
+lines(mse.6, type = "l", col = "green")
+
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2)
+
+```
+####Plotting unique controls - ratios -(with replacement)
+
+
+```{r ratios_unique_cont_unif, echo=FALSE}
+plot( prop_cont.5, type = "l", ylab = "unique controls/number treated", xlab = "Ratio", ylim = c(0.3,0.77), lwd = 2, col = "steelblue")
+abline(h=seq(0.1,0.7,0.1), lty=2,col="grey")
+```
+
+####Plotting treated discarded -ratios (with calipers) - unif
+
+
+```{r, echo=FALSE}
+plot(discard_treat.6, type = "l", ylab = "proportion of treated discarded", xlab = "Ratio of controls to treated", ylim = c(0,0.33), lwd = 2, col = "steelblue")
+abline(h=seq(0,0.3,0.05), lty=2,col="grey")
+```
+
+# CALIPERS
+#### Simulation - caliper size - unif - 80% overlap
+
+```{r MC_calipers, cache=TRUE,echo=FALSE}
+### Simulation 7: Changing caliper size - uniform data - 80%
+set.seed(18)
+reps <- 1000
+calipers <- seq(0.05,2,0.05)
+n=50
+
+m.7<-mapply(g.x, m=reps, n=n, caliper = calipers, replace=FALSE, distance = "logit",
+            min_T=1/6, max_T = 1, min_C=0, max_C=5/6)
+dim(m.7) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7 <-apply(m.7,c(1,3),mean)[1,]
+bias.7 <- (est.7)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7 <- apply(m.7,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7 <- var.7 + (bias.7)^2
+
+prop_cont.7 <- apply(m.7,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7 <- apply(m.7,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+
+#### Simulation - caliper size - unif - 40% overlap 
+
+```{r MC_calipers_less_overlap, cache=TRUE,echo=FALSE}
+### Simulation 7a: Changing caliper size - uniform data - less overlap-40%
+set.seed(18)
+reps <- 1000
+calipers <- seq(0.05,2,0.05)
+n=50
+
+m.7a<-mapply(g.x, m=reps, n=n, min_T = 3/8, max_T=1, min_C=0, max_C=5/8,
+            caliper = calipers, replace=FALSE, distance = "logit")
+dim(m.7a) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7a <-apply(m.7a,c(1,3),mean)[1,]
+bias.7a <- (est.7a)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7a <- apply(m.7a,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7a <- var.7a + (bias.7a)^2
+
+prop_cont.7a <- apply(m.7a,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7a <- apply(m.7a,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### Simulation - caliper size - unif - 20% overlap 
+
+```{r MC_calipers_less_overlap, cache=TRUE,echo=FALSE}
+### Simulation 7b: Changing caliper size - uniform data - less overlap-20%
+set.seed(18)
+reps <- 500
+calipers <- seq(0.05,2,0.05)
+n=50
+
+m.7b<-mapply(g.x, m=reps, n=n, min_T = 4/9, max_T=1, min_C=0, max_C=5/9,
+            caliper = calipers, replace=FALSE, distance = "logit")
+dim(m.7b) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7b <-apply(m.7b,c(1,3),mean)[1,]
+bias.7b <- (est.7b)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7b <- apply(m.7b,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7b <- var.7b + (bias.7b)^2
+
+prop_cont.7b <- apply(m.7b,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7b <- apply(m.7b,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### Simulation - caliper size - unif - 60% overlap 
+
+```{r MC_calipers_less_overlap, cache=TRUE,echo=FALSE}
+### Simulation 7c: Changing caliper size - uniform data - less overlap-60%
+set.seed(18)
+reps <- 500
+calipers <- seq(0.05,2,0.05)
+n=50
+
+m.7c<-mapply(g.x, m=reps, n=n, min_T=2/7, max_T = 1, min_C=0, max_C=5/7,
+            caliper = calipers, replace=FALSE, distance = "logit")
+dim(m.7c) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7c <-apply(m.7c,c(1,3),mean)[1,]
+bias.7c <- (est.7c)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7c <- apply(m.7c,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7c <- var.7c + (bias.7c)^2
+
+prop_cont.7c <- apply(m.7c,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7c <- apply(m.7c,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### Simulation - caliper size - unif - 100% overlap 
+
+```{r MC_calipers_less_overlap, cache=TRUE,echo=FALSE}
+### Simulation 7d: Changing caliper size - uniform data - 100% overlap
+set.seed(18)
+reps <- 500
+calipers <- seq(0.05,2,0.05)
+n=50
+
+m.7d<-mapply(g.x, m=reps, n=n, min_T=0, max_T = 1, min_C=0, max_C=1,
+            caliper = calipers, replace=FALSE, distance = "logit")
+dim(m.7d) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7d <-apply(m.7d,c(1,3),mean)[1,]
+bias.7d <- (est.7d)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7d <- apply(m.7d,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7d <- var.7d + (bias.7d)^2
+
+prop_cont.7d <- apply(m.7d,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7d <- apply(m.7d,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+
+
+
+
+
+#### Simulation - caliper size - unif - 20% overlap - high n (n=500)
+
+```{r MC_calipers_less_overlap_n500, cache=TRUE,echo=FALSE}
+### Simulation 7b: Changing caliper size - uniform data - less overlap-20%
+set.seed(18)
+reps <- 500
+calipers <- seq(0.05,2,0.05)
+n=500
+
+m.7e<-mapply(g.x, m=reps, n=n, min_T = 4/9, max_T=1, min_C=0, max_C=5/9,
+            caliper = calipers, replace=FALSE, distance = "logit")
+dim(m.7e) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7e <-apply(m.7e,c(1,3),mean)[1,]
+bias.7e <- (est.7e)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7e <- apply(m.7e,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7e <- var.7e + (bias.7e)^2
+
+prop_cont.7e <- apply(m.7e,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7e <- apply(m.7e,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+
+#### Simulation - caliper size - unif - 100% overlap -high n (n=500)
+
+```{r MC_calipers_less_overlap, cache=TRUE,echo=FALSE}
+### Simulation 7d: Changing caliper size - uniform data - 100% overlap
+set.seed(18)
+reps <- 500
+calipers <- seq(0.05,2,0.05)
+n=500
+
+m.7f<-mapply(g.x, m=reps, n=n, min_T=0, max_T = 1, min_C=0, max_C=1,
+            caliper = calipers, replace=FALSE, distance = "logit")
+dim(m.7f) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.7f <-apply(m.7f,c(1,3),mean)[1,]
+bias.7f <- (est.7f)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.7f <- apply(m.7f,c(1,3),var)[1,] #vector of variances for each sample size
+mse.7f <- var.7f + (bias.7f)^2
+
+prop_cont.7f <- apply(m.7f,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.7f <- apply(m.7f,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+
+
+#### Plotting bias - caliper sizes - uniform data - 
+
+The bias increases as the caliper size increases, then stabilizes at around 0.1 which is approximately the bias caused by the overlap of the treatment and control groups.
+
+for 0verlap 20% only 500 simulations were used as with 1000 not all simulations found suitable matches
+
+as overlap decreases, greater caliper size leads to higher bias when matching without replacement as there are fewer good matches.When the overlap is high, the matches are good even when the caliper is large. therefore the bias is low.
+
+```{r caliper_bias_unif,echo=FALSE}
+plot(calipers,bias.7d, type = "l",  
+     xlab = "Caliper Size", ylab = "Bias", col="firebrick1", ylim = c(0,0.5))
+lines(calipers,bias.7, col="darkorange")
+lines(calipers,bias.7c,col="green3")
+lines(calipers,bias.7a, col="dodgerblue")
+lines(calipers,bias.7b,col="purple")
+#lines(calipers,bias.7e)
+
+
+legend("topleft", 
+  legend = c("overlap = 1.0","overlap = 0.80", "overlap = 0.60","overlap = 0.40","overlap = 0.20"),
+  col = c("firebrick1", "darkorange", "green3", "dodgerblue", "purple"),
+  pch = 15)
+```
+
+#### Plotting variance -caliper sizes - unif
+
+Variance is slightly higher with smaller calipers dues the the instability of having a very small number of mathes, however it does not decrease further with larger calipers.
+
+
+```{r caliper_var_unif,echo=FALSE}
+plot(calipers,var.7d, type = "l",  
+     xlab = "Caliper Size", ylab = "Variance", col="firebrick1",  ylim = c(0,0.07))
+lines(calipers,var.7, col="darkorange")
+lines(calipers,var.7c,col="green3")
+lines(calipers,var.7a, col="dodgerblue")
+lines(calipers,var.7b,col="purple")
+
+
+legend("topright", 
+  legend = c("overlap = 1.0","overlap = 0.80", "overlap = 0.60","overlap = 0.40","overlap = 0.20"),
+  col = c("firebrick1", "darkorange", "green3", "dodgerblue", "purple"),
+  pch = 15)
+```
+
+
+#### Plotting MSE -caliper sizes - unif
+
+```{r caliper_var_unif,echo=FALSE}
+plot(calipers,mse.7d, type = "l",  
+     xlab = "Caliper Size", ylab = "Mean Squared Error", col="firebrick1", ylim = c(0,0.3))
+lines(calipers,mse.7, col="darkorange")
+lines(calipers,mse.7c,col="green3")
+lines(calipers,mse.7a, col="dodgerblue")
+lines(calipers,mse.7b,col="purple")
+
+
+legend("topleft", 
+  legend = c("overlap = 1.0","overlap = 0.80", "overlap = 0.60","overlap = 0.40","overlap = 0.20"),
+  col = c("firebrick1", "darkorange", "green3", "dodgerblue", "purple"),
+  pch = 15)
+```
+
+#### plotting mse caliper size and sample size, n = 50,500 overap 20
+```{r caliper_var_unif,echo=FALSE}
+plot(calipers,mse.7e, type = "l",  
+     xlab = "Caliper Size", ylab = "Mean Squared Error", col="darkblue", ylim = c(0,0.25))
+lines(calipers,mse.7b,col="dodgerblue")
+
+
+abline(v=0.2, col = "grey", lty=2)
+
+legend("top", 
+  legend = c("n = 500, overlap = 20%", "n=50, overlap = 20%"),
+  col = c("darkblue","dodgerblue"),
+  lty=1, lwd=2)
+```
+#### plotting mse caliper size and sample size, n = 50,500,overlap 100
+```{r caliper_var_unif,echo=FALSE}
+plot(calipers,mse.7f, type = "l",  
+     xlab = "Caliper Size", ylab = "Mean Squared Error", col="darkblue", ylim = c(0,0.25))
+lines(calipers,mse.7d,col="dodgerblue")
+
+
+abline(v=0.2, col = "grey", lty=2)
+
+legend("top", 
+  legend = c( "n=500, overlap = 100%","n = 50, overlap = 100%"),
+  col = c("darkblue","dodgerblue"),
+  lty=1, lwd=2)
+```
+
+####Plotting - proportion treated discarded - caliper size -unif
+
+```{r treat_discard_caliper_unif, echo=FALSE}
+calipers <- seq(0.05,2,0.05)
+plot(calipers,discard_treat.7d, type = "l", col="firebrick1",
+     ylim = c(0,1), ylab = "Proportion",xlab = "Caliper size", 
+     #main = "Treated units discarded vs caliper size" 
+     )
+lines(calipers,discard_treat.7, col="darkorange")
+lines(calipers,discard_treat.7c,col="green3")
+lines(calipers,discard_treat.7a, col="dodgerblue")
+lines(calipers,discard_treat.7b,col="purple")
+
+legend("topright", 
+  legend = c("overlap = 1.0","overlap = 0.80", "overlap = 0.60","overlap = 0.40","overlap = 0.20"),
+  col = c("firebrick1", "darkorange", "green3", "dodgerblue", "purple"),
+  pch = 15)
+
+#abline(h=seq(0,0.3,0.1), lty="dotted", col="grey")
+
+```
+With a caliper $>1$ 1, no treated units are discarded. However, the bias and MSE are also higher with a caliper $>1$. 
+
+# TREATMENT EFFECT SIZE
+
+#### Simulation treatment effect - without - unif
+
+```{r vary_effect_without, cache=TRUE, echo=FALSE}
+#### simulation 8 - without replacement
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=50
+
+set.seed(18)
+
+m.8<-mapply(g.x,m=reps,effect = t_effect,n=n)
+dim(m.8) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.8 <-apply(m.8,c(1,3),mean)[1,]
+bias.8 <- est.8-t_effect                                #vector of biases for each sample size
+var.8 <- apply(m.8,c(1,3),var)[1,]               #vector of variances for each n
+mse.8 <- var.8 + bias.8^2
+
+prop_cont.8 <- apply(m.8,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.8 <- apply(m.8,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+
+```
+
+#### Simulation treatment effect - with - unif
+
+```{r vary_effect_with, cache=TRUE, echo=FALSE}
+#### simulation 9 - with replacement
+set.seed(18)
+t_effect <- seq(-2,2,0.5)
+
+m.9<-mapply(g.x,m=reps,effect = t_effect,n=n, replace=TRUE)
+dim(m.9) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.9 <-apply(m.9,c(1,3),mean)[1,]
+bias.9 <- est.9-t_effect                                #vector of biases for each sample size
+var.9 <- apply(m.9,c(1,3),var)[1,]               #vector of variances for each n
+mse.9 <- var.9 + bias.9^2
+
+prop_cont.9 <- apply(m.9,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.9 <- apply(m.9,c(1,3),mean)[3,]/n
+```
+
+#### Simulation treatment effect - caliper - unif
+
+```{r vary_effect_caliper, cache=TRUE, echo=FALSE}
+#### simulation 10 - without replacement, with caliper
+set.seed(18)
+t_effect <- seq(-2,2,0.5)
+
+m.10<-mapply(g.x,m=reps,effect = t_effect,n=n, distance = "logit", caliper = 0.3)
+dim(m.10) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.10 <-apply(m.10,c(1,3),mean)[1,]
+bias.10 <- est.10-t_effect                                #vector of biases for each sample size
+var.10 <- apply(m.10,c(1,3),var)[1,]               #vector of variances for each n
+mse.10 <- var.10 + bias.10^2
+
+prop_cont.10 <- apply(m.10,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.10 <- apply(m.10,c(1,3),mean)[3,]/n
+```
+####Plotting bias - treatment effects - unif
+
+```{r plot_var_treatment_unif, echo=FALSE}
+
+plot( bias.8, type = "l", col = "steelblue", ylim = c(0,0.2), xaxt = "n", 
+       ylab="Bias", xlab="True Treatment Effect", lwd=2)
+lines(bias.9, col = "red")
+lines(bias.10, col = "green2", lty=3, lwd=2)
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green2"),lty = c(1,1,2),lwd=2
+  ) 
+```
+####Plotting variance -treatment effects - unif
+
+```{r plot_var_treatment_unif, echo=FALSE}
+
+plot( var.8, type = "l", col = "steelblue", ylim = c(0,0.04), xaxt = "n", 
+       ylab="Variance", xlab="True Treatment Effect", lwd=2)
+lines(var.9, col = "red")
+lines(var.10, col = "green2", lty=3, lwd=2)
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green2"),lty = c(1,1,2),lwd=2
+  ) 
+```
+
+Bias and variance stay constant for different sized true treatment effects.
+
+#### Plotting MSE - treatment effects - unif
+```{r plot_mse_treat_unif, echo=FALSE}
+
+plot( mse.8, type = "l", col = "steelblue", ylim = c(0,0.05), xaxt = "n", 
+      ylab = "Mean Squred Error", xlab = "True Treatment Effect")
+lines(mse.9, col = "red")
+lines(mse.10, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),lwd=2
+) 
+```
+
+
+
+
+
+When using calipers on uniform data, the logit scale means that extreme points have probabilities of $0$ or $1$ of being included in the treatment group. This means that all data points outside the common support become $-\infty$ or $\infty$ and do not get matched. As a consequence this means that the bias becomes $0$.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
