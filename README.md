@@ -9,5 +9,8 @@ Pdf file of master's thesis
 [Functions](/matching_simulation_functions.R)
 Functions for performing the simulations
 
-# simulations 1
-[simulations]
+# Simulations 1
+[simulations_1]
+
+# Simulations 2
+[simulations_2](/simulations2_overlap_uniform.Rmd)
