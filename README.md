@@ -4,7 +4,7 @@ This repository contains the Master's thesis and the R code pertaing to it. The 
 This research compares three commonly used matching methods; Nearest neighbour matching with replacement and without replacement, and propensity score matching using a caliper (PSM). Monte Carlo simulations were performed to assess the strengths and weaknesses of the methods in estimating the true treatment effect under different conditions.
 
 
-## Thesis: Match Making
+## [Thesis: Match Making](https://github.com/laura-ruth/LJS_thesis/blob/main/Thesis_ljs.pdf)
 Pdf file of master's thesis
 
 
