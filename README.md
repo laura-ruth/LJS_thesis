@@ -1,9 +1,10 @@
 # About
-This repository contains the Master's thesis and the R code pertaing to it. The thesis was written as part of my Master's in Statistical Science and Data Science at Leiden University between February 
+This repository contains the Master's thesis and the R code pertaing to it. The thesis was written as part of the Master's in Statistical Science and Data Science at Leiden University between February and August 2022.
+
+This research compares $3$ commonly used matching methods; Nearest neighbour matching with replacement and without replacement, and propensity score matching using a caliper (PSM). Monte Carlo simulations were performed to assess the strengths and weaknesses of the methods in estimating the true treatment effect under different conditions.
 
 
-
-## THESIS: Match Making
+## Thesis: Match Making
 Pdf file of master's thesis
 
 
