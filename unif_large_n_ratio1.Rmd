@@ -1,0 +1,186 @@
+---
+title: "Unif_n_ratio1"
+author: "Laura Jansen-Storbacka"
+date: '2022-06-28'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=FALSE}
+source("matching_simulation_functions.R")
+library(ggplot2)
+library(MatchIt)
+
+```
+
+## RATIO == 1
+
+#### unif - n - without
+
+```{r unif_samplesize_without, cache=TRUE, echo=FALSE}
+### simulation 1. vary sample size, without replacement, caliper = false
+
+set.seed(18)
+reps <- 100
+n=seq(10,1010,50)
+
+m.r1<-mapply(g.x, m=reps, n=n, ratio=1)
+dim(m.r1) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.r1 <-apply(m.r1,c(1,3),mean)[1,]
+bias.r1 <- est.r1-1                                #vector of biases for each sample size
+var.r1 <- apply(m.r1,c(1,3),var)[1,]               #vector of variances for each n
+mse.r1 <- var.r1 + bias.r1^2
+
+prop_cont.r1 <- apply(m.r1,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.r1 <- apply(m.r1,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### unif - n - with
+
+```{r unif_samplesize_with, cache=TRUE, echo=FALSE}
+### simulation 2. vary sample size, raplace = true, caliper = false
+set.seed(18)
+reps <- 100
+n=seq(10,1010,50)
+
+m.r2<-mapply(g.x,m=reps,n=n,replace=TRUE, ratio = 1)
+dim(m.r2) <- c(3,reps,length(n)) # change dimensions from list to 3d array
+
+est.r2 <-apply(m.r2,c(1,3),mean)[1,]
+bias.r2 <- est.r2-1  #vector of biases for each sample size
+var.r2 <- apply(m.r2,c(1,3),var)[1,] #vector of variances for each sample size
+mse.r2 <- var.r2 + bias.r2^2
+
+prop_cont.r2 <- apply(m.r2,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.r2 <- apply(m.r2,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+```
+
+#### unif - n - caliper
+
+```{r MC_caliper_samplesize, cache=TRUE, echo=FALSE}
+### simulation 3. vary n, caliper = 0.3, replace = false
+set.seed(18)
+reps <- 100
+n <- seq(10,1010,50)
+
+m.r3<-mapply(g.x,m=reps, n=n, replace=FALSE, distance = "logit", caliper = 0.3, ratio = 1)
+dim(m.r3) <- c(3,reps,length(n)) # change dimensions from list to 3d array
+
+est.r3 <-apply(m.r3,c(1,3),mean)[1,]
+bias.r3 <- (est.r3) -1  #vector of biases for each sample size (bias = estimate - true effect)
+var.r3 <- apply(m.r3,c(1,3),var)[1,] #vector of variances for each sample size
+mse.r3 <- var.r3 + (bias.r3)^2
+
+prop_cont.r3 <- apply(m.r3,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.r3 <- apply(m.r3,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+#bias.r3 <- c(rep(NA,9), bias.r3) # for plotting, add NAs since the sequence starts later
+#var.r3 <- c(rep(NA,9),var.r3)
+#mse.r3 <- c(rep(NA,9),mse.r3)
+```
+
+```{r MC_caliper_samplesize, cache=TRUE, echo=FALSE}
+### simulation 4. vary n, caliper = 0.2, replace = false
+set.seed(18)
+reps <- 100
+n <- seq(10,1010,50)
+
+m.r4<-mapply(g.x,m=reps, n=n, replace=FALSE, distance = "logit", caliper = 0.2, ratio = 1)
+dim(m.r4) <- c(3,reps,length(n)) # change dimensions from list to 3d array
+
+est.r4 <-apply(m.r4,c(1,3),mean)[1,]
+bias.r4 <- (est.r4) -1  #vector of biases for each sample size (bias = estimate - true effect)
+var.r4 <- apply(m.r4,c(1,3),var)[1,] #vector of variances for each sample size
+mse.r4 <- var.r4 + (bias.r4)^2
+
+prop_cont.r4 <- apply(m.r4,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.r4 <- apply(m.r4,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+```
+
+```{r MC_caliper_samplesize, cache=TRUE, echo=FALSE}
+### simulation 4. vary n, caliper = 0.1, replace = false
+set.seed(18)
+reps <- 100
+n <- seq(10,1010,50)
+
+m.r5<-mapply(g.x,m=reps, n=n, replace=FALSE, distance = "logit", caliper = 0.1, ratio = 1)
+dim(m.r5) <- c(3,reps,length(n)) # change dimensions from list to 3d array
+
+est.r5 <-apply(m.r5,c(1,3),mean)[1,]
+bias.r5 <- (est.r5) -1  #vector of biases for each sample size (bias = estimate - true effect)
+var.r5 <- apply(m.r5,c(1,3),var)[1,] #vector of variances for each sample size
+mse.r5 <- var.r5 + (bias.r5)^2
+
+prop_cont.r5 <- apply(m.r5,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.r5 <- apply(m.r5,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+```
+
+#### Plotting Bias - n- unif - ratio 1
+
+As expected, bias declines with the treated sample size at first and then levels off. When a caliper is used the bias is consistent, however, due to potential discards the actual sample size will be lower here, so the variance will be higher.
+
+```{r, bias_n_unif, echo=FALSE}
+n <- seq(10,1010,50)
+plot(n,bias.r2, type = "l", col = "red",ylab="Bias",xlab = "Sample Size of Treated",ylim = c(0,0.4))
+lines(n,bias.r1, type = "l", col = "steelblue")
+lines(n,bias.r3, type = "l", col = "green")
+#lines(n,bias.r4, col = "purple")
+#lines(n,bias.r5,col="pink")
+legend("topright", 
+  legend = c("Without replacement", "With replacement",
+             "Without replacement, Caliper = 0.3"
+             #, "Without replacement Caliper = 0.2"
+             ),
+  col = c("steelblue", "red", "green"),
+  lty=1) 
+
+```
+
+#### Plotting var - n- unif - ratio 1
+
+```{r}
+n <- seq(10,1010,50)
+plot(n,var.r2, type = "l", col = "red",ylab="Variance",xlab = "Sample Size of Treated",ylim = c(0,0.02))
+lines(n,var.r1, type = "l", col = "steelblue")
+lines(n,var.r3, type = "l", col = "green")
+#lines(n,var.r4, col = "purple")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lty=1) 
+
+```
+
+#### Plotting MSE - n- unif - ratio 1
+
+```{r, bias_n_unif, echo=FALSE}
+n <- seq(10,1010,50)
+plot(n,mse.r2, type = "l", col = "red",ylab="MSE",xlab = "Sample Size of Treated",ylim = c(0,0.09))
+lines(n,mse.r1, type = "l", col = "steelblue")
+lines(n,mse.r3, type = "l", col = "green")
+#lines(n,mse.r4, col = "purple")
+#lines(n,mse.r5, col="pink")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"
+             #, "Without replacement Caliper = 0.2","Caliper = 0.1"
+             ),
+  col = c("steelblue", "red", "green"
+          #, "purple"
+          ),
+  lty=1) 
+
+```
+
+```{r}
+plot(n,discard_treat.r3,type="l",ylim=c(0,0.4), col="green", 
+     ylab = "Proportion of Treated Discarded", xlab = "Sample Size",
+     lwd=1.5)
+#lines(n,discard_treat.r4,col="purple")
+#lines(n,discard_treat.r5, col="pink")
+
+```

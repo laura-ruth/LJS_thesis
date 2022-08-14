@@ -1,0 +1,339 @@
+---
+title: "propensity score simulation"
+author: "Laura Jansen-Storbacka"
+date: "5/16/2022"
+output: pdf
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+source("matching_simulation_functions.R")  # functions to create data, run MC simulations and calculate treatment effects
+library(ggplot2)
+library(MatchIt)
+library(tidyverse)
+
+```
+
+### Hand calculating propensity scores in a large dataset.
+
+To see the proportion of expected rejections in a dataset...
+
+```{r}
+set.seed(18)
+df <- create_norm_data(n=50, mean_T = 2*(sqrt(1/12)), ratio=1) # mean T is 2 sd from mean C
+ggplot(df,aes(x1,y,colour = treatment)) +
+  geom_point(size=3, alpha = 0.3) 
+```
+
+Calculate propensity score, for each x1, the probability of being in the treated group.
+
+$\frac{p}{(1-p)} = \exp(\beta_0 + \beta_1x)$
+
+$\log[\frac{p}{(1-p)}] = \beta_0 + \beta_1x$
+
+```{r}
+# fitting a logistic model to the data to predict treatment using the covariates only (NOT the outcome)
+
+df$treatment <- as.factor(df$treatment)
+model <- glm( treatment ~x1, data = df, family = binomial)
+model$coefficients
+# Predict
+df$propensity <- model %>% predict(df, type = "response") 
+### this is the vector of probabilities = propensity score
+
+df$predicted.classes <- ifelse(df$propensity > 0.5, "T", "C")
+# vector of predicted classes
+
+# Model accuracy
+mean(df$predicted.classes == df$treatment) # gives 80% accuracy
+```
+
+The logistic regression gives us the coefficients of the linear part of the GLM. $\beta_0$ and for $\beta_1$
+
+(log odds "logit"= log (p/(1-p)) log odds change
+
+(p = exp log odds/(1+exp log odds)),
+
+This gives us $p = \frac{\exp(\beta_0 + \beta_1)}{ 1 + \exp(\beta_0 + \beta_1)}$
+
+so for each $x_1$ the probability of being in the treated class can be calculated
+
+```{r}
+### recreating the propensity score by hand, checking it is the same
+B1 <- model$coefficients[1]
+B2 <- model$coefficients[2]
+
+df$p <- (exp(B1 + B2*df$x1))/(1+ exp(B1 + B2*df$x1))
+head(df,10)
+tail(df,10)
+
+```
+
+```{r}
+df %>%
+  mutate(prob = ifelse(treatment == "T", 1, 0)) %>%
+
+  ggplot(aes(x1, propensity)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  labs(
+    #title = "Propensity Scores as X increases", 
+    x = "x1",
+    y = "Probability of being treated (propensity score)"
+    )
+```
+
+```{r}
+# calculating the logit of the probability
+# caliper size on the covariate is C*logit(propensity)) - e.g. Caliper = 0.3 is 0.3*log(p/(1-p))
+df$logit <- log(df$p/(1-df$p))
+
+sd_logit <- sd(df$logit)
+
+0.3*sd_logit # caliper = 0.3 # on original scale
+
+```
+
+### What happens to the propensity score when uniform distributions are used?
+
+```{r}
+set.seed(18)
+dfu <- create_data_unif( n=10, max_C = 0.9, min_T = 0.1)
+ggplot(dfu,aes(x1,treatment,colour = treatment)) +
+  geom_point(size=3, alpha = 0.5) 
+```
+
+```{r}
+
+```
+
+```{r}
+dfu$treatment <- as.factor(dfu$treatment)
+model <- glm( treatment ~x1, data = dfu, family = binomial)
+#model$coefficients
+# Predict
+dfu$propensity <- model %>% predict(dfu, type = "response")
+dfu$predicted.classes <- ifelse(dfu$propensity > 0.5, "T", "C")
+dfu %>%
+  mutate(prob = ifelse(treatment == "T", 1, 0)) %>%
+  ggplot(aes(x1, propensity)) +
+  #geom_point(alpha = 0.5) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  labs(
+    title = "Propensity Scores", 
+    x = "x1",
+    y = "Probability of being treated"
+    )
+```
+
+```{r}
+# calculating the logit of the probability
+# caliper size on the covariate is C*logit(propensity)) - e.g. Caliper = 0.3 is 0.3*log(p/(1-p))
+dfu$logit <- log(dfu$propensity/(1-dfu$propensity))
+
+sd_logit_u <- sd(dfu$logit)
+sd_logit_u
+cal <-0.3*sd_logit_u # caliper = 0.3
+cal
+
+1/(1+exp(-cal))
+
+```
+
+#### Caliper to original scale - n
+
+```{r}
+find_caliper <- function(n=50,max_C=.9,min_T=0.1, caliper_size =0.3, ratio=2){
+  df <- create_data_unif(n=n, max_C = max_C, min_T = min_T, ratio=ratio)
+  df$treatment <- as.factor(df$treatment)
+  model <- glm( treatment ~x1, data = df, family = binomial)
+
+  df$propensity <- model %>% predict(df, type = "response")
+  df$logit <- log(df$propensity/(1-df$propensity))
+  sd_logit <- sd(df$logit)
+  caliper <-caliper_size*sd_logit # = caliper on original scale
+  return(caliper)
+}
+```
+
+#### MC function for caliper size
+
+```{r}
+g.x2 <- function(m=1000,n=50,max_C=0.9,min_T=0.1,caliper_size = 0.3,ratio=2){
+  reps = replicate(m,find_caliper(n=n,max_C = max_C, min_T = min_T, 
+                                  caliper_size = caliper_size,
+                                  ratio = ratio)
+                   )
+  return(mean(reps))
+}
+
+
+```
+
+#### orginal scale calipers 0.3 simulation ratio 2
+
+```{r}
+#ratio 2
+n=seq(10,1010,50)
+calips_0.3 <-mapply(g.x2, n=n)
+
+```
+
+#### Plotting caliper on original scale - n - ratio 2
+
+```{r}
+n=seq(10,1010,50)
+plot(n, calips_0.3, type = "l", ylab = "Caliper size on Original scale", xlab = "Sample Size", col="green",ylim=c(0,0.2))
+
+```
+
+
+
+#### 0-100 zoom in on caliper original n ratio 2
+```{r}
+n=seq(10,100,5)
+calips_0.3a <- mapply(g.x2,n=n,caliper_size=0.3)
+```
+
+```{r}
+n=seq(10,100,5)
+plot(n, calips_0.3a, type = "l", ylab = "Caliper 0.3 size on original scale", xlab = "Sample Size", col="green",ylim=c(0,0.16), lwd=1.5)
+abline(h=seq(0,0.15,0.025), col="grey",lty=2)
+```
+#### orginal scale calipers 0.3 simulation ratio 
+
+```{r}
+#ratio 2
+n=seq(10,1010,50)
+calips_r1_0.3 <-mapply(g.x2, n=n,ratio=1)
+
+```
+
+#### Plotting caliper on original scale - n - ratio 1
+
+```{r}
+n=seq(10,1010,50)
+plot(n, calips_r1_0.3, type = "l", ylab = "Caliper size on Original scale ratio 1", xlab = "Sample Size", col="green",ylim=c(0,0.18))
+abline(h=seq(0,0.15,0.05), col="grey",lty=2)
+```
+
+#### 0-100 zoom in on caliper original n ratio 1
+```{r}
+n=seq(10,100,5)
+calips_r1_0.3a <- mapply(g.x2,n=n,caliper_size=0.3,ratio=1)
+```
+
+```{r}
+n=seq(10,100,5)
+plot(n, calips_r1_0.3a, type = "l", ylab = "Caliper 0.3 size on original scale ratio = 1", xlab = "Sample Size", col="green",ylim=c(0,0.18), lwd=1.5)
+abline(h=seq(0,0.2,0.05), col="grey",lty=2)
+```
+
+
+
+#### plotting logistic curves - overlaps
+
+```{r}
+#NORMAL
+set.seed(18)
+n=500
+#  MEAN T = MEAN C = 0 : IDENTICAL C AND T DISTRIBUTIONS
+dfp0 <- create_norm_data(n=n,mean_C = 0, mean_T = 0.25, ratio=1) 
+dfp0$index <- rep("distance = 0.25", nrow(dfp0))
+dfp0$treatment <- as.factor(dfp0$treatment) 
+model <- glm( treatment ~x1, data = dfp0, family = binomial)
+dfp0$propensity <- model %>% predict(dfp0, type = "response") 
+
+mutate(dfp0,prob = ifelse(treatment == "T", 1, 0))
+
+# MEAN C = 0, MEAN T = 1
+dfp1 <- create_norm_data(n=n,mean_C = 0, mean_T = 1) 
+dfp1$index <- rep("distance = 1",nrow(dfp1))
+dfp1$treatment <- as.factor(dfp1$treatment) 
+model <- glm( treatment ~x1, data = dfp1, family = binomial)
+dfp1$propensity <- model %>% predict(dfp1, type = "response") 
+
+mutate(dfp1,prob = ifelse(treatment == "T", 1, 0))
+
+# MEAN C = 0, MEAN T = 2
+dfp2 <- create_norm_data(n=n,mean_C = 0, mean_T = 3) 
+dfp2$index <- rep("distance = 3",nrow(dfp2))
+dfp2$treatment <- as.factor(dfp2$treatment) 
+model <- glm( treatment ~x1, data = dfp2, family = binomial)
+dfp2$propensity <- model %>% predict(dfp2, type = "response") 
+dfp2 %>%
+  mutate(prob = ifelse(treatment == "T", 1, 0))
+
+
+newdf <- rbind(dfp2,dfp1, dfp0)
+
+```
+
+```{r}
+### changes in propensity scores for NORMAL data, single covariate as overlap decreases 
+  ggplot(newdf,aes(x1, propensity)) +
+  #geom_point(alpha = 0.2) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se=0.95) +
+   facet_wrap(~index)+
+  labs(
+    title = "Propensity Scores for normal data as distance between means changes", 
+    x = "x1",
+    y = "Probability of being treated"
+    )
+
+```
+
+```{r}
+### UNIFORM
+#The treated group is fixed at unif (0.5,1).
+#the control group slides from unif(0.5,1) to unif(0,0.5), it is always 0.5 units 
+
+set.seed(18)
+n=100
+
+#  MIN C = 0, MAX C = 0.5 = 0 OVERLAP
+dfpu0 <- create_data_unif(n=n,min_T = 0.5, max_T = 1, min_C = 0, max_C = 0.5)
+dfpu0$index <- rep("Overlap = 0", nrow(dfpu0))
+dfpu0$treatment <- as.factor(dfpu0$treatment) 
+model <- glm( treatment ~x1, data = dfpu0, family = binomial)
+dfpu0$propensity <- model %>% predict(dfpu0, type = "response") 
+mutate(dfpu0,prob = ifelse(treatment == "T", 1, 0))
+
+# MIN C = 0.25, MAX C = 0.75 OVERLAP = 0.5
+dfpu1 <- create_data_unif(n=n,min_T = 0.5, max_T = 1, min_C = 0, max_C = 0.75) 
+dfpu1$index <- rep("Overlap = 0.5",nrow(dfpu1))
+dfpu1$treatment <- as.factor(dfpu1$treatment) 
+model <- glm( treatment ~x1, data = dfpu1, family = binomial)
+dfpu1$propensity <- model %>% predict(dfpu1, type = "response") 
+mutate(dfpu1,prob = ifelse(treatment == "T", 1, 0))
+
+# MIN C = 0.5, MAX C = 1
+dfpu2 <- create_data_unif(n=n,min_T = 0.5, max_T = 1, min_C = 0, max_C = 1) 
+dfpu2$index <- rep("Overlap = 1",nrow(dfpu2))
+dfpu2$treatment <- as.factor(dfpu2$treatment) 
+model <- glm( treatment ~x1, data = dfpu2, family = binomial)
+dfpu2$propensity <- model %>% predict(dfpu2, type = "response") 
+mutate(dfpu2,prob = ifelse(treatment == "T", 1, 0))
+
+
+newdf_unif <- rbind(dfpu2,dfpu1, dfpu0)
+
+
+
+```
+
+```{r}
+### changes in propensity scores for UNIFORM data, single covariate as overlap decreases 
+  ggplot(newdf_unif,aes(x1, propensity)) +
+  #geom_point(alpha = 0.2) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se=0.95) +
+   facet_wrap(~index)+
+  labs(
+    #title = "Propensity Scores as distance between means changes", 
+    x = "x1",
+    y = "Probability of being treated"
+    )
+```

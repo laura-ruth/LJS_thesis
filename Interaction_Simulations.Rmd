@@ -1,0 +1,429 @@
+---
+title: "Interactions_simulations"
+author: "Laura Jansen-Storbacka"
+date: "6/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=FALSE}
+source("matching_simulation_functions.R")
+library(ggplot2)
+library(MatchIt)
+library("lmtest")
+library("sandwich")
+library("boot")
+
+```
+
+
+
+#### vary slope treated without replacement
+
+```{r MC_interaction_betas_without, cache=TRUE, echo=FALSE}
+
+set.seed(18)
+reps <- 1000
+n=50
+beta1s <- c(1,2,3,4,5,6) # slope treated
+beta2 <- 1
+effect <- 2
+
+m.i1<-mapply(g.x,m=reps,n=n, beta1 = beta1s, beta2=beta2, effect = effect)
+dim(m.i1) <- c(3,reps,length(beta1s))                  # change dimensions from list to 3d array
+
+est.i1 <-apply(m.i1,c(1,3),mean)[1,]
+bias.i1 <- est.i1 -  (0.55*beta1s + effect -0.55*beta2) 
+var.i1 <- apply(m.i1,c(1,3),var)[1,]               
+mse.i1 <- var.i1 + bias.i1^2
+
+prop_cont.i1 <- apply(m.i1,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.i1 <- apply(m.i1,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### Vary slope treated, with replacement
+
+```{r MC_interaction_betas_with, cache=TRUE,echo=FALSE}
+### simulation 1b. vary slope of treated, both treated and control intercept at 0, with replacement
+
+set.seed(18)
+reps <- 1000
+n=50
+beta1s <- c(1,2,3,4,5,6)
+beta2 <- 1
+effect = 2
+
+
+m.i2<-mapply(g.x,m=reps,n=n, beta1 = beta1s, beta2=beta2, effect=effect, replace=TRUE)
+dim(m.i2) <- c(3,reps,length(beta1s))                  # change dimensions from list to 3d array
+
+est.i2 <-apply(m.i2,c(1,3),mean)[1,]
+bias.i2 <- est.i2- (0.55*beta1s + effect -0.55*beta2)                               #vector of biases for each sample size
+var.i2 <- apply(m.i2,c(1,3),var)[1,]               #vector of variances for each n
+mse.i2 <- var.i2 + bias.i2^2
+
+prop_cont.i2 <- apply(m.i2,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.i2 <- apply(m.i2,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### Vary slope treated with caliper
+
+```{r MC_interaction_betas_caliper, cache=TRUE,echo=FALSE}
+### simulation 1c - vary slope of treated, both treated and control intercept at 0, with caliper
+### uniform data T~U(0.1,1), C~U(0,0.9)
+
+set.seed(18)
+reps <- 1000
+n=50
+beta1s <- c(1,2,3,4,5,6)
+beta2=1
+effect =2
+
+m.i3<-mapply(g.x,m=reps,n=n, beta1 = beta1s, beta2=beta2, effect=effect, distance = "logit", caliper = 0.3)
+dim(m.i3) <- c(3,reps,length(beta1s))                  # change dimensions from list to 3d array
+
+est.i3 <-apply(m.i3,c(1,3),mean)[1,]
+bias.i3 <- est.i3 - (0.55*beta1s + effect -0.55*beta2)                   #vector of biases for each sample size
+var.i3 <- apply(m.i3,c(1,3),var)[1,]               #vector of variances for each n
+mse.i3 <- var.i3 + bias.i3^2
+
+prop_cont.i3 <- apply(m.i3,c(1,3),mean)[2,]/n      
+discard_treat.i3 <- apply(m.i3,c(1,3),mean)[3,]/n  
+
+```
+
+
+
+
+#### plot bias
+
+```{r}
+beta1s <- c(1,2,3,4,5,6)
+plot(beta1s, bias.i1, type = "l", col = "steelblue3",
+     ylab="Bias",lwd=2,
+     xlab = "Slope of Treated (Slope of Control = 1)",ylim = c(-0.15,0.15)
+     )
+lines(beta1s, bias.i2, type = "l", col = "red2", lwd=1.5,)
+lines(beta1s, bias.i3, type = "l", col = "green3", lwd=2)
+
+abline(h=0, col="grey", lty = 2)
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue3", "red2", "green3"),
+  
+  lwd=2) 
+
+```
+The bias is exaggerated by the interaction effect ( since the bias and the interaction are both increasing the estimates), the estimates also increase correctly but by slightly more as the slope of T increases. Here there is only a slight bias from the small overlap.Sampling with or without replacement does not seem to make a difference.
+
+#### plot variance
+
+```{r}
+beta1s <- c(1,2,3,4,5,6)
+#plot variance
+plot(beta1s,var.i1, type = "l", col = "steelblue3",ylab="Variance",lwd=1.5,#xaxt = "n", 
+     xlab = "Slope of Treated (Slope of Control = 1)",ylim = c(0,0.035))
+lines(beta1s,var.i2, type = "l", col = "red2", lwd=1.5,)
+lines(beta1s,var.i3, type = "l", col = "green3", lwd=1.5)
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue3", "red2", "green3"),
+  lwd=2) 
+```
+
+#### plot mse
+
+```{r}
+#plot mse
+beta1s <- c(1,2,3,4,5,6)
+plot(beta1s,mse.i1, type = "l", col = "steelblue3",ylab="Mean Squared Error",lwd=2,
+     xlab = "Slope of Treated (Slope of Control = 1)",ylim = c(0,0.04))
+
+lines(beta1s,mse.i3, type = "l", col = "green3", lwd=2)
+lines(beta1s,mse.i2, type = "l", col = "red2", lwd=2,lty = 2)
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue3", "red2", "green3"),
+  lwd=2, lty = c(1,2,1)) 
+```
+
+```{r}
+plot(beta1s, discard_treat.i3, type = "l",ylim=c(0,0.06))
+# this has no change, this is expected because the bias caused by the interaction effect is not connected to the matching process and has nothing to do with being matched or discarded.
+```
+
+#### Negative slopes - vary slope treated without replacement
+
+```{r MC_interaction_betas_without_neg, cache=TRUE, echo=FALSE}
+
+set.seed(18)
+reps <- 1000
+n=50
+beta1s <- c(-1,-2,-3,-4,-5,-6) # slope treated
+beta2 <- -1
+
+m.i1a<-mapply(g.x,m=reps,n=n, beta1 = beta1s, beta2=beta2)
+dim(m.i1a) <- c(3,reps,length(beta1s))                  # change dimensions from list to 3d array
+
+est.i1a <-apply(m.i1a,c(1,3),mean)[1,]
+bias.i1a <- est.i1a -  (0.55*beta1s +1 -0.55*beta2) 
+var.i1a <- apply(m.i1a,c(1,3),var)[1,]               
+mse.i1a <- var.i1a + bias.i1a^2
+
+prop_cont.i1a <- apply(m.i1a,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.i1a <- apply(m.i1a,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+
+#### Negative Slopes - Vary slope treated, with replacement
+
+```{r MC_interaction_betas_with_neg, cache=TRUE,echo=FALSE}
+
+set.seed(18)
+reps <- 1000
+n=50
+beta1s <- c(-1,-2,-3,-4,-5,-6)
+beta2 <- -1
+
+m.i2b<-mapply(g.x,m=reps,n=n, beta1 = beta1s, beta2=beta2, effect=1, replace=TRUE)
+dim(m.i2b) <- c(3,reps,length(beta1s))                  # change dimensions from list to 3d array
+
+est.i2b <-apply(m.i2b,c(1,3),mean)[1,]
+bias.i2b <- est.i2b- (0.55*beta1s +1 -0.55*beta2)                               #vector of biases for each sample size
+var.i2b <- apply(m.i2b,c(1,3),var)[1,]               #vector of variances for each n
+mse.i2b <- var.i2b + bias.i2b^2
+
+prop_cont.i2b <- apply(m.i2b,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.i2b <- apply(m.i2b,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### Negative Slopes - Vary slope treated with caliper 
+This will give the overlap bias and the interaction bias the same direction
+
+```{r MC_interaction_betas_caliper_neg, cache=TRUE,echo=FALSE}
+
+### uniform data T~U(0.1,1), C~U(0,0.9)
+
+set.seed(18)
+reps <- 1000
+n=50
+beta1s <- c(-1,-2,-3,-4,-5,-6)
+beta2= -1
+
+m.i3c<-mapply(g.x,m=reps,n=n, beta1 = beta1s, beta2=beta2, effect=1, distance = "logit", caliper = 0.3)
+dim(m.i3c) <- c(3,reps,length(beta1s))                  # change dimensions from list to 3d array
+
+est.i3c <-apply(m.i3c, c(1,3),mean)[1,]
+bias.i3c <- est.i3c - (0.55*beta1s +1 -0.55*beta2)                   #vector of biases for each sample size
+var.i3c <- apply(m.i3c,c(1,3),var)[1,]               #vector of variances for each n
+mse.i3c <- var.i3 + bias.i3^2
+
+prop_cont.i3c <- apply(m.i3c,c(1,3),mean)[2,]/n      
+discard_treat.i3c <- apply(m.i3c,c(1,3),mean)[3,]/n  
+
+```
+
+#### plot bias - negative slopes
+
+```{r}
+plot(beta1s, bias.i1a, type = "l", col = "steelblue3",
+     ylab="Bias",lwd=2,
+     xlab = "Slope of Treated (Slope of Control = 1)",ylim = c(-0.1,.2)
+     )
+lines(beta1s, bias.i2b, type = "l", col = "red2", lwd=1.5,)
+lines(beta1s, bias.i3c, type = "l", col = "green3", lwd=2)
+
+abline(h=0, col="grey", lty = 2)
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue3", "red2", "green3"),
+  
+  lwd=2) 
+
+```
+
+
+
+
+# vary overlap - slope T = 2, C=0
+#### without replacement
+
+
+```{r MC_interaction_coverage, cache=TRUE, echo=FALSE}
+### Without replacement
+### Setting slope treated = 2, slope control = 0, intercept treated = intercept control = 0,
+#So there is only an effect for treated values where the covariate is greater than 0
+
+set.seed(18)
+reps <- 1000
+n=50
+coverage = seq(0,0.5,0.02) #  overlap window slides from 0 to 100% 
+
+m.i.4 <-mapply(g.x,m=reps,n=n,min_C = 0 + coverage, max_C = 0.5 + coverage, 
+               min_T = 0.5, max_T = 1, 
+               beta1 = 2, # slope treated
+               beta2 = 0, # slope control
+               effect = 0, # intercept of treated = 0
+               replace = FALSE)
+dim(m.i.4) <- c(3,reps,length(coverage))                 
+
+est.i.4 <-apply(m.i.4,c(1,3),mean)[1,]
+bias.i.4 <- est.i.4 -1.5                  # true ATT is 1.5 when slope T=2 and intercept T = 0
+var.i.4 <- apply(m.i.4,c(1,3),var)[1,]               
+mse.i.4 <- var.i.4 + bias.i.4^2
+
+prop_cont.i.4 <- apply(m.i.4,c(1,3),mean)[2,]/n     
+discard_treat.i.4 <- apply(m.i.4,c(1,3),mean)[3,]/n 
+
+
+```
+
+#### with replacement
+
+```{r MC_interaction_coverage_with, cache=TRUE, echo=FALSE}
+### with replacement
+### Setting slope treated = 2, slope control = 0, intercept treated = intercept control = 0,
+#So there is only an effect for treated values where the covariate is greater than 0
+
+set.seed(18)
+reps <- 1000
+n=50
+coverage = seq(0,0.5,0.02) # Slides the window of overlap
+
+m.i.5 <-mapply(g.x,m=reps,n=n,min_C = 0 + coverage, max_C = 0.5 + coverage, 
+               min_T = 0.5, max_T = 1, 
+               beta1 = 2, # slope treated
+               beta2 = 0, # slope control
+               effect = 0, # intercept of treated = 0
+               replace = TRUE)
+dim(m.i.5) <- c(3,reps,length(coverage))                 
+
+est.i.5 <-apply(m.i.5,c(1,3),mean)[1,]
+bias.i.5 <- est.i.5 -1.5                  # true ATT is 1.5 when slope T=2 and intercept T = 0, for T=U(0.5,1)
+                                        #for uniform with T from 0.5-1
+var.i.5 <- apply(m.i.5,c(1,3),var)[1,]               
+mse.i.5 <- var.i.5 + bias.i.5^2
+
+prop_cont.i.5 <- apply(m.i.5,c(1,3),mean)[2,]/n     
+discard_treat.i.5 <- apply(m.i.5,c(1,3),mean)[3,]/n 
+```
+
+#### with caliper
+
+```{r MC_interaction_coverage_with, cache=TRUE, echo=FALSE}
+### with caliper
+### Setting slope treated = 2, slope control = 0, intercept treated = intercept control = 0,
+#So there is only an effect for treated values where the covariate is greater than 0
+
+set.seed(18)
+reps <- 1000
+n=50
+coverage = seq(0.16,0.5,0.02) # Slides the window of overlap
+
+m.i.6 <-mapply(g.x,m=reps,n=n,min_C = 0 + coverage, max_C = 0.5 + coverage, 
+               min_T = 0.5, max_T = 1, 
+               beta1 = 2, # slope treated
+               beta2 = 0, # slope control
+               effect = 0, # intercept of treated = 0
+               replace = FALSE,
+               distance = "logit", caliper = 0.3
+               )
+dim(m.i.6) <- c(3,reps,length(coverage))                 
+
+est.i.6 <-apply(m.i.6,c(1,3),mean)[1,]
+bias.i.6 <- est.i.6 -1.5                 # true ATT is 1 when slope T=2 and intercept T = 0
+var.i.6 <- apply(m.i.6,c(1,3),var)[1,]               
+mse.i.6 <- var.i.6 + bias.i.6^2
+
+prop_cont.i.6 <- apply(m.i.6,c(1,3),mean)[2,]/n     
+discard_treat.i.6 <- apply(m.i.6,c(1,3),mean)[3,]/n 
+
+bias.i.6 <- c(rep(NA,8), bias.i.6)
+var.i.6 <- c(rep(NA,8),var.i.6)
+mse.i.6 <- c(rep(NA,8),mse.i.6)
+discard_treat.i.6 <- c(rep(NA,8), discard_treat.i.6)
+prop_cont.i.6 <- c(rep(NA,8), prop_cont.i.6)
+```
+
+
+#### plot bias 
+
+```{r, echo=FALSE}
+cover <- seq(0,1,0.04)
+plot(cover,bias.i.4, type = "l", col = "steelblue",lwd=2,ylim = c(-0.5,0.5),lty=2,
+     #main = "Bias with different common support (with interaction effects)", 
+     xlab = "Common Support Proportion",
+     ylab = "Bias")
+lines(cover,bias.i.5, type = "l", col = "red2",lty=2,lwd=1.5)
+lines(cover,bias.i.6, col="green2", lwd=2)
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red2", "green2"),
+  lwd=2) 
+```
+#### plot variance
+
+```{r, echo=FALSE}
+# variance interaction common support proportion
+cover <- seq(0,1,0.04)
+plot(cover,var.i.4, type = "l", col = "steelblue", ylim = c(0,0.25),lwd=2,
+     #main = "Bias with different common support (with interaction effects)", 
+     xlab = "Common Support Proportion",
+     ylab = "Variance")
+lines(cover,var.i.5, type = "l", col = "red2", lwd=1.5)
+lines(cover,var.i.6, col="green2", lwd=2)
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red2", "green2"),
+  lwd=2) 
+```
+#### plot mse
+
+```{r, echo=FALSE}
+# mse interaction common support proportion
+cover <- seq(0,1,0.04)
+plot(cover,mse.i.4, type = "l", col = "steelblue", ylim = c(0,0.5),lwd=2,
+     #main = "Bias with different common support (with interaction effects)", 
+     xlab = "Common Support Proportion",
+     ylab = "Mean Squared Error")
+lines(cover,mse.i.5, type = "l", col = "red2", lwd=1.5)
+lines(cover,mse.i.6, col="green2", lwd=2)
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red2", "green2"),
+  lwd=2) 
+```
+
+
+```{r}
+x <- seq(0,1,0.02)
+xc <- x
+xt2 <- 2*xc +1
+xt5 <- 5*xc +1
+
+plot(x, xc, type = "l", col="steelblue", ylim= c(0,6))
+lines(x,xt5, col="red3")
+abline(v=0.5, lty=2, col="pink")
+abline(v=0.55, lty=2, col="lightblue")
+
+
+```
+
+
+
+
+
+
+
+
+

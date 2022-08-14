@@ -1,0 +1,226 @@
+---
+title: "matching simulations"
+author: "Laura Jansen-Storbacka"
+date: "3/15/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt) # for love plots
+
+```
+
+
+# Function to create a simple dataset
+```{r}
+set.seed(230)
+create_1D <- function(n_treat=10,
+                      ratio = 2,
+                      mu_treat = 5,
+                      sd_treat = 2, 
+                      mu_control = 8, 
+                      sd_control = 2){
+  treated <- rnorm(n_treat,mu_treat,sd_treat)
+  control <- rnorm(ratio*n_treat, mu_control, sd_control)
+  covar.1 <- c(control,treated)
+  treatment <- as.factor(c(replicate(ratio*n_treat,"Control"),replicate(n_treat,"Treated")))
+  df <- data.frame(treatment, covar.1)
+  
+  return(df)
+}
+```
+
+```{r}
+
+```
+
+
+### creating and plotting the 1D dataset
+We see that in this dataset the support of the control group is greater and covers the support of the treated
+```{r}
+# create 1D dataset and plot
+df <-create_1D()
+df
+```
+
+```{r}
+
+ggplot(df,aes(covar.1,treatment,colour = treatment)) +
+  geom_point(size=3, alpha = 0.8) 
+
+```
+
+# Matching within the 1D dataset
+
+### Matching Without Replacement
+A nearest neighbours matching is performed without replacement or calipers. the summary shows that without matching the difference in means is $-2.7663$ and with matching the difference is $-1.0046$, so it has already improved a lot. The eCDF has also decreased from $0.8$ to $0.2$. 
+```{r}
+### matched balance nearest neighbour without replacement
+m.out1 <- matchit(treatment~covar.1,data = df,
+                 method = "nearest", distance = "mahalanobis", replace = FALSE) 
+
+summary(m.out1)
+m.out1$match.matrix
+```
+
+
+
+### comparison plots
+Density and love plots show matched and unmatched balance
+```{r}
+plot(m.out1, type = "density")
+love.plot(m.out1, drop.distance = TRUE, title = "Balance without replacement") 
+```
+
+
+### Getting the matched dataset 
+The matched dataset is extracted from the matchit object for plotting. Subclass here refers to the pairs, so every pair has its own subclass. If we matched with replacement there could be more than 2 in a group. For plotting, the matched pairs dataset is combined with the discarded covariates which are given unique subclasses. This gives the original dataset with the matched pair information allowing it to be plotted. 
+```{r}
+#m.out1$match.matrix ## to see the indices of the pairs
+matches1 <- match.data(m.out1, data = df, distance = "mahalanobis")
+matches1
+matches1 <- matches1[,-3] #deleting weights column 
+#identifying the discards and adding them back into the matched dataset.
+discards1 <- df[-as.numeric(rownames(matches1)),] 
+discards1$subclass <- letters[1:nrow(discards1)] # unmatched get unique subclasses
+full_1 <-rbind(matches1,discards1)# the original dataset with subclasses relating to matches
+```
+
+
+
+### Plot showing the matches within the original dataset .
+We can see that the matches are not ideal
+```{r}
+### matched pairs when sampling without replacement
+ggplot(full_1, aes(covar.1,treatment)) +
+  geom_point(aes(color=treatment, size=1)) +
+  geom_line(aes(group = subclass),colour="grey80")+
+ theme(legend.position="none")
+```
+### Plot showing only the matched dataset without discards
+```{r}
+ggplot(matches1, aes(covar.1,treatment)) +
+  geom_point(aes(color=treatment, size=1)) +
+  geom_line(aes(group = subclass),colour="grey80") 
+```
+
+
+## With Replacement
+The summary shows that the mean differences and eCDF are much lower with replacement. However it also shows that only $4/20$ controls were matched, as opposed to $10/20$ when sampling without replacement. This means we have a much smaller control set. Possible this is less extreme with larger datasets or higher control to treated ratios.
+```{r}
+df$treatment <- as.factor(df$treatment)
+m.out2 <- matchit(treatment~covar.1,data = df,
+                 method = "nearest", distance = "mahalanobis",replace = TRUE)
+
+summary(m.out2)
+m.out2$match.matrix
+```
+```{r}
+plot(summary(m.out2))
+
+```
+
+```{r}
+plot(m.out2, type = "density")
+love.plot(m.out2, drop.distance = TRUE, title = "Balance with replacement") 
+```
+
+
+### Getting the matches for the with replacement dataset 
+The matched dataset is extracted from the matchit object for plotting. Subclass here refers to the pairs, so every pair has its own subclass. If we matched with replacement there could be more than 2 in a group. For plotting, the matched pairs dataset is combined with the discarded covariates which are given unique subclasses. This gives the original dataset with the matched pair information allowing it to be plotted. 
+```{r}
+#m.out2$match.matrix ## to see the indices of the pairs
+matches2 <- match.data(m.out2, data = df, distance = "mahalanobis")
+#matches2 <- matches2[,-3] #deleting weights column 
+matches2C <- matches2[matches2$treatment=="Control",] #splitting into control and treated
+matches2T <- matches2[matches2$treatment == "Treated",]
+matches2C$subclass <- as.numeric(rownames(matches2C))
+matches2T$subclass <- as.numeric(m.out2$match.matrix) # matches for each treated in match.matrix
+matches2 <- rbind(matches2T,matches2C) #sticking T and C back together
+
+
+discards2 <- df[-as.numeric(rownames(matches2)),] # adding in those controls not selected
+discards2$subclass <- letters[1:nrow(discards2)] # unmatched get unique subclasses
+full_2 <-rbind(matches2,discards2)# the original dataset with subclasses relating to matches 
+full_2
+```
+
+```{r}
+### matched pairs when sampling without replacement
+ggplot(full_2, aes(covar.1,treatment)) +
+  geom_point(aes(color=treatment,size = 1)) +
+  geom_line(aes(group = subclass),colour="grey80")
+```
+
+
+## Extracting balance information
+
+```{r}
+### function to get matched balance statistice to use in monte carlo simulations
+### In: a matchit object m.out
+### Out: balance statistics - mean difference, mean eCDF, max eCDF
+### just mean diff for now, could easily expand to include eCDF etc summary(m.out)$sum.matched[,5] etc
+
+getbalance <- function(m.out){
+  mean_diff_matched <- summary(m.out)$sum.matched[,3] 
+  mean_diff_unmatched <- summary(m.out)$sum.all[,3]
+  results <- c(mean_diff_matched,mean_diff_unmatched)
+  return(results)
+}
+
+getbalance(m.out1)
+```
+
+## simulating to check the variability of the differences
+simulate dataset 100 times
+-for each dataset, run matching with and without replacement. no calipers or any other complications yet
+-for each dataset, collect the mean differences after matching
+-for each dataset, return the average of the mean differences after matching
+```{r}
+# in: 
+# out: 
+get_estimates <- function(){
+  df <- create_1D() #create match object
+  m.without <- matchit(treatment~covar.1,
+                       data = df,
+                       method = "nearest", 
+                       distance = "mahalanobis", 
+                       replace = FALSE)
+  m.with <-  matchit(treatment~covar.1,
+                     data = df,
+                     method = "nearest", 
+                     distance = "mahalanobis", 
+                     replace = TRUE)
+  mean_diff_with <- summary(m.with)$sum.matched[,4] 
+  mean_diff_without <- summary(m.without)$sum.matched[,4]
+  results <- c(mean_diff_with,mean_diff_without)
+  return(results)
+}
+```
+
+
+```{r}
+# mc simulation
+
+mc_fun <- function(m=1000){
+  reps <- replicate(m,get_estimates())
+  mean_with <- mean(reps[1,])
+  var_with <- var(reps[1,])
+  mean_without <- mean(reps[2,])
+  var_without <- var(reps[2,])
+  result <- c(mean_with,var_with,mean_without,var_without)
+  return(result)
+}
+
+```
+
+```{r}
+mc_fun(100)
+```
+
