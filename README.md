@@ -26,5 +26,7 @@ MC simulations on overlap for the uniform distribution
 ## Interaction Simulations
 [interaction_simulations](https://github.com/laura-ruth/LJS_thesis/blob/main/Interaction_Simulations.Rmd)
 
+## Propensity simulations
+https://github.com/laura-ruth/LJS_thesis/blob/main/propensity%20_simulations.Rmd
 
-
+##
