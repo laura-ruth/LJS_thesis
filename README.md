@@ -20,7 +20,7 @@ MC simulations for uniformly distributed data comparing 3 matching methods. Para
 
 MC simulations comparing ther 3 matching methods when the ratio is 1:1 for sample sizes from 10 to 1010. 
 
-## [uniform_simulations_2_overlap](/simulations2_overlap_uniform.Rmd)
+## [Uniform_simulations_2_overlap](/simulations2_overlap_uniform.Rmd)
 
 MC simulations on overlap for the uniform distribution
 
