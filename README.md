@@ -29,6 +29,7 @@ MC simulations on overlap for the uniform distribution
 
 ## Interaction Simulations 
 [interaction_simulations](https://github.com/laura-ruth/LJS_thesis/blob/main/Interaction_Simulations.Rmd)
+
 MC simulations looking at the effect of different levels of interaction on the estimates produced by the 3 matching methods.
 
 ## Propensity simulations 
