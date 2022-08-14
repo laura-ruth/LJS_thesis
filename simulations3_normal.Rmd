@@ -1,0 +1,1215 @@
+---
+title: "simulations3_normal"
+author: "Laura Jansen-Storbacka"
+date: "4/22/2022"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r, global_options, include=FALSE, echo=TRUE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, tidy.opts=list(width.cutoff=60), tidy=TRUE, echo=TRUE) 
+
+```
+
+```{r, message=FALSE}
+source("matching_simulation_functions.R")
+library(ggplot2)
+library(MatchIt)
+
+```
+
+```{r, include=FALSE}
+set.seed(17)
+df <- create_norm_data(n=10)
+df
+```
+
+```{r}
+df$ID <- 1:nrow(df)
+df$treatment <- as.factor(df$treatment) # for caliper matching
+
+ggplot(df, aes(x1,y)) + geom_text(aes(label=ID,color=treatment),size = 3 )
+  #geom_point(aes(color=treatment),size=5)
+```
+
+### example of the default overlapping normal distributions
+
+```{r, echo=FALSE}
+x <- seq(-1.2,1.2, length=100)
+y1 <- dnorm(x,mean=0,sd = sqrt(1/12))
+y2 <- dnorm(x,mean=0.1, sd=sqrt(1/12))
+
+plot(x,y1, type = "l", col="deeppink2", lwd=2)
+lines(x,y2,col="cyan4", lwd=2)
+legend("topright", 
+  legend = c("Control","Treated"),
+  col = c("deeppink2","cyan4"),
+ lwd=2)
+
+```
+
+### Comparing performance for different sample sizes, normal data
+
+#### normal data, without replacement, distance = mahalanobis, n treated = 50, n control = 100, sd control and treated = 1
+
+```{r norm-MC_samplesize, cache=TRUE,echo=FALSE}
+set.seed(18)
+reps <- 1000
+n=seq(1,100,1)
+
+m.n.1<-mapply(g.x_norm,m=reps,n=n)
+dim(m.n.1) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.n.1 <-apply(m.n.1,c(1,3),mean)[1,]
+bias.n.1 <- est.n.1-1                                #vector of biases for each sample size
+var.n.1 <- apply(m.n.1,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.1 <- var.n.1 + bias.n.1^2
+
+prop_cont.n.1 <- apply(m.n.1,c(1,3),mean)[2,]/n      # average proportion of max possible controls used - always n here
+discard_treat.n.1 <- apply(m.n.1,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+
+```
+
+#### changing n, with replacement, normal distributions
+
+```{r norm_n_with, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 1000
+n=seq(1,100,1)
+
+m.n.2<-mapply(g.x_norm,m=reps,n=n, replace = TRUE)
+dim(m.n.2) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.n.2 <-apply(m.n.2,c(1,3),mean)[1,]
+bias.n.2 <- est.n.2-1                                #vector of biases for each sample size
+var.n.2 <- apply(m.n.2,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.2 <- var.n.2 + bias.n.2^2
+
+prop_cont.n.2 <- apply(m.n.2,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.2 <- apply(m.n.2,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+### changing n, with caliper, normal distributions
+
+```{r norm_n_caliper, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 1000
+n=seq(10,100,1)
+
+m.n.3<-mapply(g.x_norm,m=reps,n=n, replace = TRUE,distance = "logit", caliper = 0.3 )
+dim(m.n.3) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.n.3 <-apply(m.n.3,c(1,3),mean)[1,]                              #vector of biases for each sample size
+var.n.3 <- apply(m.n.3,c(1,3),var)[1,]               #vector of variances for each n
+
+prop_cont.n.3 <- apply(m.n.3,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.3 <- apply(m.n.3,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+est.n.3 <- c(rep(NA,9),est.n.3)
+bias.n.3 <- est.n.3-1 
+var.n.3 <- c(rep(NA,9),var.n.3)
+mse.n.3 <- var.n.3 + bias.n.3^2
+```
+
+### plot bias for different sample sizes, normal data
+
+```{r}
+plot(bias.n.1,type = "l", col="steelblue", xlab = "Sample Size of Treated Group", 
+     ylab = "Bias",ylim = c(-0.02,0.14), 
+     #main = "Bias vs sample size for normal data"
+     )
+lines(bias.n.2, col="red")
+lines(bias.n.3, col="green")
+abline(h=0, lty = "dotted", col="grey")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2) 
+
+```
+
+The bias is high for sampling without replacement. Is this related to the effect size or the sd of the normal distributions? With the caliper and without replacement the data seems unbiased.
+
+This is for a very small overlap - the means are only 0.1 apart.We see when the means are very close (so the distributions are not very different) that using a caliper results in very small bias for higher $n$.
+
+%%% with more distance?
+
+```{r}
+plot(var.n.1,type = "l", col="steelblue", xlab = "Sample Size of Treated Group", ylab = "Variance",ylim = c(0,0.08))
+#abline(h=0, lty = "dotted")
+lines(var.n.2, col="red")
+lines(var.n.3, col="green")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2) 
+
+```
+
+Both using a caliper and sampling with replacement decrease the sample thus increasing the variance.
+
+```{r}
+### MSE
+plot(mse.n.1,type = "l", col="steelblue", xlab = "Sample Size of Treated Group", ylab = "Mean Squared Error",ylim = c(0,0.07))
+lines(mse.n.2, col="red")
+lines(mse.n.3, col="green")
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  pch = 15) 
+
+```
+
+THE MSE GRAPH IS SIMILAR TO THE VARIANCE GRAPH AS THE BIAS VALUES ARE SMALL SO CONTRIBUTE LESS TO MSE.
+
+WHEN THE MEANS ARE VERY CLOSE TOGETHER, SAMPLING WITHOUT REPLACEMENT OUTPERFORMS THE CALIPER AS THE BIAS IS LOW FOR ALL SO THE VARIANCE HAS MORE INFLUENCE ON THE MSE
+
+#### looking at the discards in the caliper group
+
+When n is greater than around 40 the percentage of treated units discarded is less than 5% (with n controls = 2\*n treated). This applies for the default normal distributions with control $~N(0,1)$ and treated \$\~N(1,1).
+
+This is much lower than for the uniform distribution
+
+so it is clear that when there is 0 probability of ending up in one of the groups, this makes the propensity score matching reject a lot more units even when they are quite close.
+
+```{r, echo=FALSE}
+
+plot(discard_treat.n.3, type = "l", col = "steelblue", ylim = c(0,1), 
+     ylab = "proportion of treated discarded", xlab = "sample size", 
+     #main = "Proportion of treated discarded with caliper (normal data)"
+     )
+lines(discard_treat.n.3a, col="red")
+abline(h=seq(0,0.10,0.02), lty = "dotted", col="grey")
+
+```
+
+### bias with large n
+
+We see that without replacement the bias stabilizes around 0.6, but with replacement the bias continues to improve as sample size increases. The bias for using a caliper does not change with sample size. Trying with larger n (n=1000) we see that all are biased however the samples with replacement approach 0 for larger sample sizes.
+
+```{r bias_large_n, cache=TRUE}
+# bias for larger n
+m.n.4 <- g.x_norm(n=1000,)
+m.n.4_bias <- mean(m.n.4[1,])-1
+m.n.5 <-g.x_norm(n=1000, replace = TRUE)
+m.n.5_bias <-mean(m.n.5[1,])-1
+m.n.6 <- g.x_norm(n=1000, distance = "logit", caliper = 0.3)
+m.n.6_bias <-mean(m.n.6[1,])-1
+```
+
+```{r}
+d<-as.data.frame(c(m.n.4_bias,m.n.5_bias,m.n.6_bias), row.names = c("without replacement","with replacement","caliper = 0.3"))
+colnames(d)[1] <- "Bias n=1000"
+d$Variance <- c(var(m.n.4[1,]),var(m.n.5[1,]),var(m.n.6[1,]))
+d$MSE <- d[,1]+d[,2]^2
+d
+
+```
+
+With higher n bias is very low for all numbers
+
+###### WHEN GROUP MEANS ARE FAR APART + 3SD - CHANGES WITH n
+
+```{r, echo=FALSE}
+x <- seq(-1.5, 2.5, length=100)
+y1 <- dnorm(x,mean=0, sd=sqrt(1/12))
+y2 <- dnorm(x,mean=3*(sqrt(1/12)), sd=sqrt(1/12))
+
+plot(x,y1, type = "l", col="deeppink2", lwd=2)
+lines(x,y2,col="cyan4", lwd=2)
+
+legend("topright", 
+  legend = c("Control","Treated"),
+  col = c("deeppink2","cyan4"),
+ lwd=2)
+
+```
+
+#### normal data, without replacement, distance = mahalanobis, n treated = 50, n control = 100, sd control and treated = 1
+
+```{r norm-MC_samplesize, cache=TRUE,echo=FALSE}
+set.seed(18)
+reps <- 1000
+n=seq(1,100,1)
+
+m.n.1a<-mapply(g.x_norm,m=reps,n=n, mean_C=0,sd_C=sqrt(1/12), mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+dim(m.n.1a) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.n.1a <-apply(m.n.1a,c(1,3),mean)[1,]
+bias.n.1a <- est.n.1a-1                                #vector of biases for each sample size
+var.n.1a <- apply(m.n.1a,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.1a <- var.n.1a + bias.n.1a^2
+
+prop_cont.n.1a <- apply(m.n.1a,c(1,3),mean)[2,]/n      # average proportion of max possible controls used  
+discard_treat.n.1a <- apply(m.n.1a,c(1,3),mean)[3,]/n  
+
+```
+
+#### changing n, with replacement, normal distributions - means separated by 3SD
+
+```{r norm_n_with, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 1000
+n=seq(1,100,1)
+
+m.n.2a<-mapply(g.x_norm,m=reps,n=n, replace = TRUE, mean_C=0,sd_C=sqrt(1/12), mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+dim(m.n.2a) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.n.2a <-apply(m.n.2a,c(1,3),mean)[1,]
+bias.n.2a <- est.n.2a-1                                #vector of biases for each sample size
+var.n.2a <- apply(m.n.2a,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.2a <- var.n.2a + bias.n.2a^2
+
+prop_cont.n.2a <- apply(m.n.2a,c(1,3),mean)[2,]/n     
+discard_treat.n.2a <- apply(m.n.2a,c(1,3),mean)[3,]/n  
+
+```
+
+### changing n, with caliper, normal distributions, means separated by 3SD
+
+```{r norm_n_caliper, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 100
+n=seq(40,100,1)
+
+m.n.3a<-mapply(g.x_norm,m=reps,n=n, replace = FALSE,
+               distance = "logit", caliper = 0.3, 
+               mean_C=0,sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12) )
+
+dim(m.n.3a) <- c(3,reps,length(n))                  # change dimensions from list to 3d array
+
+est.n.3a <-apply(m.n.3a,c(1,3),mean)[1,]                              #vector of biases for each sample size
+var.n.3a <- apply(m.n.3a,c(1,3),var)[1,]               #vector of variances for each n
+
+prop_cont.n.3a <- apply(m.n.3a,c(1,3),mean)[2,]/n      
+discard_treat.n.3a <- apply(m.n.3a,c(1,3),mean)[3,]/n  
+
+
+est.n.3a <- c(rep(NA,39),est.n.3a)
+bias.n.3a <- est.n.3a-1 
+var.n.3a <- c(rep(NA,39),var.n.3a)
+mse.n.3a <- var.n.3a + bias.n.3a^2
+
+discard_treat.n.3a <- c(rep(NA,39),discard_treat.n.3a)
+
+```
+
+### plot bias for different sample sizes, normal data - separated means
+
+```{r}
+plot(bias.n.1a,type = "l", col="steelblue", xlab = "Sample Size of Treated Group", 
+     ylab = "Bias",
+     ylim = c(0,2), 
+     #main = "Bias vs sample size for normal data"
+     )
+lines(bias.n.2a, col="red")
+lines(bias.n.3a, col="green")
+abline(h=0, lty = "dotted", col="grey")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2) 
+
+```
+
+```{r}
+# plot variance - separated means
+plot(var.n.1a,type = "l", col="steelblue", xlab = "Sample Size of Treated Group", 
+     ylab = "Variance",
+     ylim = c(0,0.8), 
+     #main = "Bias vs sample size for normal data"
+     )
+lines(var.n.2a, col="red")
+lines(var.n.3a, col="green")
+abline(h=0, lty = "dotted", col="grey")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd = 2) 
+```
+
+```{r}
+# plot mse norm separated means
+plot(mse.n.1a,type = "l", col="steelblue", xlab = "Sample Size of Treated Group", 
+     ylab = "Mean Squared Error",
+     ylim = c(0,2.5), 
+     #main = "Bias vs sample size for normal data"
+     )
+lines(var.n.2a, col="red")
+lines(var.n.3a, col="green")
+abline(h=0, lty = "dotted", col="grey")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd = 2) 
+```
+
+```{r, echo=FALSE}
+# PLOTTING THE PROPORTION OF TREATED DISCARDED FOR CALIPER MATCHING
+# FOR BIG AND SMALL DISTANCES BETWEEN THE MEANS OF THE NORMALLY DISTRIBUTED CONTROL AND TREADED GROUPS
+
+plot(discard_treat.n.3a, type = "l", col = "dodgerblue", ylim = c(0,1.15), 
+     ylab = "Proportion of Treated Discarded", xlab = "Sample Size of Treated Group", lwd=2
+     #main = "Proportion of treated discarded with caliper (normal data)"
+     )
+lines(discard_treat.n.3, col="darkorange",lwd=2)
+abline(h=seq(0,1,0.2), col="grey", lty = 2)
+
+legend("topright", 
+  legend = c("Far", "Close"),
+  col = c("dodgerblue", "darkorange"),
+  lwd = 2) 
+```
+
+```{r, echo=FALSE}
+## PLOTTING THE PROPORTION OF UNIQUE CONTROLS WHEN MATCHING WITH REPLACEMENT FOR
+## BIG AND SMALL DISTANCES BETWEEN THE MEANS OF THE NORMALLY DISTRIBUTED TREATED GROUPS
+
+plot(prop_cont.n.3a, type = "l", col = "dodgerblue", ylim = c(0,1.15), 
+     ylab = "Proportion of Unique Controls", xlab = "Sample Size of Treated Group", lwd=2
+     #main = "Proportion of treated discarded with caliper (normal data)"
+     )
+lines(prop_cont.n.3, col="darkorange",lwd=2)
+abline(h=seq(0,1,0.2), col="grey", lty = 2)
+
+legend("topright", 
+  legend = c("Far", "Close"),
+  col = c("dodgerblue", "darkorange"),
+  lwd = 2) 
+
+```
+
+#### simulation 7 normal.- close distributions
+
+#### Changing control:treated ratio for normal distributions, without replacement, no caliper, n=50
+
+```{r MC_ratios, cache = TRUE, echo=FALSE }
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.n.7<-mapply(g.x_norm, m=reps, n=n, ratio = ratios, replace=FALSE)
+dim(m.n.7) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.n.7 <-apply(m.n.7,c(1,3),mean)[1,]
+bias.n.7 <- (est.n.7)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.7 <- apply(m.n.7,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.7 <- var.n.7 + (bias.n.7)^2
+
+prop_cont.n.7 <- apply(m.n.7,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.7 <- apply(m.n.7,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+# 7a normal - far distributions - small overlap - without replacement
+
+```{r MC_ratios, cache = TRUE, echo=FALSE }
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.n.7a<-mapply(g.x_norm, m=reps, n=n, ratio = ratios, replace=FALSE,
+               mean_C=0,sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12) )
+dim(m.n.7a) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.n.7a <-apply(m.n.7a,c(1,3),mean)[1,]
+bias.n.7a <- (est.n.7a)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.7a <- apply(m.n.7a,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.7a <- var.n.7a + (bias.n.7a)^2
+
+prop_cont.n.7a <- apply(m.n.7a,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.7a <- apply(m.n.7a,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### simulation 8 normal. large overlap - close distributions
+
+#### Changing control:treated ratio for normal distributions, with replacement, no caliper, n=50
+
+```{r, normal_with_ratios, cache=TRUE,echo=FALSE}
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.n.8<-mapply(g.x_norm, m=reps, n=n, ratio = ratios, replace=TRUE)
+dim(m.n.8) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.n.8 <-apply(m.n.8,c(1,3),mean)[1,]
+bias.n.8 <- (est.n.8)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.8 <- apply(m.n.8,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.8 <- var.n.8 + (bias.n.8)^2
+
+prop_cont.n.8 <- apply(m.n.8,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.8 <- apply(m.n.8,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+#### simulation 8a normal. small overlap - far distributions
+
+#### Changing control:treated ratio for normal distributions, with replacement, no caliper, n=50
+
+```{r, normal_with_ratios, cache=TRUE,echo=FALSE}
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.n.8a<-mapply(g.x_norm, m=reps, n=n, ratio = ratios, replace=TRUE,
+               mean_C=0,sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12) )
+dim(m.n.8a) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.n.8a <-apply(m.n.8a,c(1,3),mean)[1,]
+bias.n.8a <- (est.n.8a)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.8a <- apply(m.n.8a,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.8a <- var.n.8a + (bias.n.8a)^2
+
+prop_cont.n.8a <- apply(m.n.8a,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.8a <- apply(m.n.8a,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+# simulation 9 - changing ratios - normal- caliper-large overlap
+
+```{r normal_caliper_ratio, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 1000
+ratios <- seq(1,10,1)
+n=50
+
+m.n.9<-mapply(g.x_norm, m=reps, n=n, ratio = ratios, replace=FALSE, distance = "logit", caliper=0.3)
+dim(m.n.9) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.n.9 <-apply(m.n.9,c(1,3),mean)[1,]
+bias.n.9 <- (est.n.9)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.9 <- apply(m.n.9,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.9 <- var.n.9 + (bias.n.9)^2
+
+prop_cont.n.9 <- apply(m.n.9,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.9 <- apply(m.n.9,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+```
+
+# simulation 9a - changing ratios - normal- caliper-large overlap
+
+```{r normal_caliper_ratio, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 1000
+ratios <- seq(3,10,1)
+n=50
+
+m.n.9a<-mapply(g.x_norm, m=reps, n=n, ratio = ratios, replace=FALSE, 
+               distance = "logit", caliper=0.3,
+               mean_C=0,sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+dim(m.n.9a) <- c(3,reps,length(ratios)) # change dimensions from list to 3d array
+
+est.n.9a <-apply(m.n.9a,c(1,3),mean)[1,]
+bias.n.9a <- (est.n.9a)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.9a <- apply(m.n.9a,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.9a <- var.n.9a + (bias.n.9a)^2
+
+prop_cont.n.9a <- apply(m.n.9a,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.9a <- apply(m.n.9a,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+
+bias.n.9a <- c(NA,NA,bias.n.9a)
+var.n.9a <- c(NA,NA,var.n.9a)
+mse.n.9a <- c(NA,NA,mse.n.9a)
+prop_cont.n.9a <- c(NA,NA,prop_cont.n.9a)
+discard_treat.n.9a <- c(NA,NA, discard_treat.n.9a)
+```
+
+#### Plotting bias for different control to treated ratios, normal distributions - close
+
+for ratios less than 3 sampling with replacement gives the lowest bias, but when the ratio is higher than 3 sampling with a caliper (and no replacement) gives the lowest bias.
+
+```{r}
+ratios <- seq(1,10,1)
+plot(ratios,bias.n.7, col="steelblue", ylim = c(0,0.05), type = "l", 
+     #main = "Bias for different control to treated ratios", 
+     ylab = "Bias", xlab = "Control to Treated Ratio")
+lines(bias.n.8, col= "red")
+lines(bias.n.9, col = "green")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  pch = 15) 
+```
+
+```{r}
+### plotting RATIO effect normal data small overlap BIAS
+ratios <- seq(1,10,1)
+plot(ratios,bias.n.7a, col="steelblue", ylim = c(0,1.8), type = "l", 
+     #main = "Bias for different control to treated ratios", 
+     ylab = "Bias", xlab = "Control to Treated Ratio")
+lines(bias.n.8a, col= "red")
+lines(bias.n.9a, col = "green")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  pch = 15) 
+```
+
+#### Plotting variance for different control to treated ratios, normal distributions
+
+Using a caliper gives the lowest variance for all ratios
+
+```{r}
+plot(ratios,var.n.7, col="steelblue", ylim = c(0,0.03), type = "l", 
+     #main = "Variance for different control to treated ratios", 
+     ylab = "Variance", xlab = "Control to Treated Ratio")
+lines(var.n.8, col= "red")
+lines(var.n.9, col = "green")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2) 
+```
+
+```{r}
+### for smalloverlap
+plot(ratios,var.n.7a, col="steelblue", ylim = c(0,0.3), type = "l", 
+     #main = "Variance for different control to treated ratios", 
+     ylab = "Variance", xlab = "Control to Treated Ratio")
+lines(var.n.8a, col= "red")
+lines(var.n.9a, col = "green")
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2) 
+```
+
+#### Plotting MSE for different control to treated ratios, normal distributions
+
+```{r}
+### high overlap
+plot(ratios,mse.n.7, col="steelblue", ylim = c(0,0.035), type = "l", lty=3,lwd=2,
+     #main = "MSE for different control to treated ratios", 
+     ylab = "Mean Squared Error", xlab = "Control to Treated Ratio")
+lines(mse.n.8, col= "red", lwd=1.5)
+lines(mse.n.9, col = "green", lwd=1.5, lty=2)
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without Replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2, lty = c(2,1,2)) 
+```
+
+Using without replacement or using a caliper both reduce the overall mean squared error for lower ratios. When the ratios of controls to treated is greater than 6 the MSE is similar for all methods. Using a caliper is slightly better for all
+
+```{r}
+### low overlap
+plot(ratios,mse.n.7a, col="steelblue", ylim = c(0,2), type = "l",lwd=2,
+     #main = "MSE for different control to treated ratios", 
+     ylab = "Mean Squared Error", xlab = "Control to Treated Ratio")
+lines(mse.n.8a, col= "red", lwd=1.5)
+lines(mse.n.9a, col = "green", lwd=1.5)
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without Replacement, Caliper = 0.3"),
+  col = c("steelblue", "red", "green"),
+  lwd=2) 
+```
+
+#### looking at the discards in the caliper group
+
+The caliper performed best in terms of MSE, however for ratios of $3$ or less over $15\%$ of the samples were discarded. Even at ratios of up to $10$ at least $10\%$ were discarded.
+
+```{r}
+plot(discard_treat.n.9, type = "l", col = "darkorange", ylim = c(0,1), ylab = "Proportion of Treated Discarded", 
+     xlab = "Ratio of Control to Treated", 
+     #main = "Proportion discarded vs ratio (caliper=0.3, normal data)", 
+     lwd=2)
+lines(discard_treat.n.9a, col="dodgerblue",lwd=2)
+abline(h=seq(0,1,0.2), lty = "dotted",col="grey")
+legend("topright", 
+  legend = c("Close", "Far"),
+  col = c("darkorange", "dodgerblue"),
+  lwd=2) 
+
+```
+
+```{r}
+plot(prop_cont.n.8, type = "l", col = "darkorange", ylim = c(0,1.2), ylab = "Proportion of Unique Controls", 
+     xlab = "Ratio of Controls to Treated", 
+     #main = "Proportion Unique controls with replacement", 
+     lwd=2)
+lines(prop_cont.n.8a, col="dodgerblue",lwd=2)
+abline(h=seq(0,1,0.2), lty = "dotted",col="grey")
+legend("topright", 
+  legend = c("Close", "Far"),
+  col = c("darkorange","dodgerblue"),
+  lwd=2) 
+
+```
+
+### Simulation 10: Changing caliper size, without replacement - close distributions
+
+```{r MC_calipers_10, cache=TRUE, echo=FALSE}
+set.seed(18)
+reps <- 1000
+calipers <- seq(0.05,2,0.05)
+n=100
+
+m.n.10<-mapply(g.x_norm, m=reps, n=n, caliper=calipers, distance = "logit", replace=FALSE)
+dim(m.n.10) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.n.10 <-apply(m.n.10,c(1,3),mean)[1,]
+bias.n.10 <- (est.n.10)-1  #vector of biases for each sample size (bias = estimate - true effect)
+var.n.10 <- apply(m.n.10,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.10 <- var.n.10 + (bias.n.10)^2
+
+prop_cont.n.10 <- apply(m.n.10,c(1,3),mean)[2,]/n # average proportion of controls used
+discard_treat.n.10 <- apply(m.n.10,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+```
+
+```{r MC_calipers_10, cache=TRUE, echo=FALSE}
+### 10a far distributions
+set.seed(18)
+reps <- 1000
+calipers <- seq(0.05,2,0.05)
+n=100
+
+m.n.10a<-mapply(g.x_norm, m=reps, n=n, caliper=calipers, distance = "logit", replace=FALSE,
+                mean_C=0,sd_C=sqrt(1/12), mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+dim(m.n.10a) <- c(3,reps,length(calipers)) # change dimensions from list to 3d array
+
+est.n.10a <-apply(m.n.10a,c(1,3),mean)[1,]
+bias.n.10a <- (est.n.10a)-1                #vector of biases for each sample size (bias = estimate - true effect)
+var.n.10a <- apply(m.n.10a,c(1,3),var)[1,] #vector of variances for each sample size
+mse.n.10a <- var.n.10a + (bias.n.10a)^2
+
+prop_cont.n.10a <- apply(m.n.10a,c(1,3),mean)[2,]/n       # average proportion of controls used
+discard_treat.n.10a <- apply(m.n.10a,c(1,3),mean)[3,]/n   # average proportion discarded from treatment
+
+
+```
+
+### plotting bias vs caliper size
+
+```{r}
+plot(calipers,bias.n.10, type = "l",ylim=c(0,1.05), 
+     xlab = "Caliper Size", ylab = "Bias", col="darkorange", lwd = 2)
+lines(calipers,bias.n.10a, col="dodgerblue", lwd=2)
+abline(h=seq(0,1,0.2),col = "grey73", lty=3)
+legend("topleft", 
+  legend = c("Close", "Far"),
+  col = c("darkorange","dodgerblue"),
+  lwd=2) 
+```
+
+### plotting variance vs caliper size
+
+```{r}
+plot(calipers,var.n.10, type = "l", xlab = "caliper", ylab = "Variance", 
+     col="darkorange", lwd = 2, ylim = c(0,0.045))
+lines(calipers,var.n.10a, col="dodgerblue", lwd=2)
+
+legend("topright", 
+  legend = c("Close", "Far"),
+  col = c("darkorange","dodgerblue"),
+  lwd=2) 
+```
+
+### plotting MSE vs caliper size
+
+```{r}
+plot(calipers,mse.n.10, type = "l", xlab = "Caliper Size", 
+     ylab = "MSE", col="darkorange", lwd = 2, ylim = c(0,1.2))
+lines(calipers,mse.n.10a, col="dodgerblue", lwd=2)
+legend("topleft", 
+  legend = c("Close", "Far"),
+  col = c("darkorange","dodgerblue"),
+  lwd=2) 
+
+```
+
+### Plotting the proportion of the treated group discarded vs caliper size
+
+```{r}
+plot(calipers,discard_treat.n.10, type = "l",  xlab = "caliper", 
+     ylab = "Discard proportion", col="darkorange",lwd = 2, ylim = c(0,1))
+lines(calipers,discard_treat.n.10a, col="dodgerblue", lwd=2)
+legend("topright", 
+  legend = c("Close", "Far"),
+  col = c("darkorange","dodgerblue"),
+  lwd=2) 
+```
+
+With calipers greater than 1 there are almost no treated units discarded, however the match quality as indicated by the MSE is a lot worse. With a caliper of 0.3, the discarded proportion of the treated units for $n=50$ and ratio $= 2$ is around $18%$.
+
+### Varying treatment effect - how does this effect bias and variance for normal distributions?
+
+#### simulation with normal distributions 11
+
+```{r vary_effect_without_norm, cache=TRUE, echo=FALSE}
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=50
+set.seed(18)
+
+m.n.11<-mapply(g.x_norm,m=reps,effect = t_effect,n=n)
+dim(m.n.11) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.n.11 <-apply(m.n.11,c(1,3),mean)[1,]
+bias.n.11 <- est.n.11-t_effect                                #vector of biases for each sample size
+var.n.11 <- apply(m.n.11,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.11 <- var.n.11 + bias.n.11^2
+
+prop_cont.n.11 <- apply(m.n.11,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.11 <- apply(m.n.11,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+
+```
+
+
+
+```{r vary_effect_without_norm, cache=TRUE, echo=FALSE}
+###  11a treatment effect normal distributions without replacement FAR data
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=50
+set.seed(18)
+
+m.n.11a<-mapply(g.x_norm,m=reps,effect = t_effect,n=n,
+               mean_C=0, sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+
+dim(m.n.11a) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.n.11a <-apply(m.n.11a,c(1,3),mean)[1,]
+bias.n.11a <- est.n.11a-t_effect                                #vector of biases for each sample size
+var.n.11a <- apply(m.n.11a,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.11a <- var.n.11a + bias.n.11a^2
+
+prop_cont.n.11a <- apply(m.n.11a,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.11a <- apply(m.n.11a,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+
+```
+#### simulation 12 - varying treatment effect with normal distributions - with replacement - close
+
+```{r vary_effect_with_norm, cache=TRUE, echo=FALSE}
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=50
+set.seed(18)
+
+m.n.12<-mapply(g.x_norm,m=reps,effect = t_effect,n=n, replace=TRUE)
+dim(m.n.12) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.n.12 <-apply(m.n.12,c(1,3),mean)[1,]
+bias.n.12 <- est.n.12-t_effect                                #vector of biases for each sample size
+var.n.12 <- apply(m.n.12,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.12 <- var.n.12 + bias.n.12^2
+
+prop_cont.n.12 <- apply(m.n.12,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.12 <- apply(m.n.12,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+#### simulation 12a - varying treatment effect with normal distributions - with replacement - far distributions
+
+```{r vary_effect_with_norm, cache=TRUE, echo=FALSE}
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=60
+set.seed(18)
+
+m.n.12a<-mapply(g.x_norm,m=reps,effect = t_effect,n=n, replace=TRUE,
+               mean_C=0, sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+dim(m.n.12a) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.n.12a <-apply(m.n.12a,c(1,3),mean)[1,]
+bias.n.12a <- est.n.12a-t_effect                                #vector of biases for each sample size
+var.n.12a <- apply(m.n.12a,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.12a <- var.n.12a + bias.n.12a^2
+
+prop_cont.n.12a <- apply(m.n.12a,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.12a <- apply(m.n.12a,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### simulation 13 - varying treatment effect with normal distributions, with caliper, no replacement
+
+```{r vary_effect_caliper_norm, cache=TRUE, echo=FALSE}
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=60
+set.seed(18)
+
+m.n.13<-mapply(g.x_norm,m=reps,effect = t_effect,n=n, replace=FALSE, distance = "logit", caliper = 0.3)
+dim(m.n.13) <- c(3,reps,length(t_effect))                  # change dimensions from list to 3d array
+
+est.n.13 <-apply(m.n.13,c(1,3),mean)[1,]
+bias.n.13 <- est.n.13-t_effect                                #vector of biases for each sample size
+var.n.13 <- apply(m.n.13,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.13 <- var.n.13 + bias.n.13^2
+
+prop_cont.n.13 <- apply(m.n.13,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.13 <- apply(m.n.13,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### simulation 13a - varying treatment effect with normal distributions, with caliper, no replacement  - far     
+
+```{r vary_effect_caliper_norm, cache=TRUE, echo=FALSE}
+t_effect <- seq(-2,2,0.5)
+reps <- 1000
+n=60
+set.seed(18)
+
+m.n.13a<-mapply(g.x_norm,m=reps,effect = t_effect,n=n, replace=FALSE, 
+                distance = "logit", caliper = 0.3,
+               mean_C=0, sd_C=sqrt(1/12), 
+               mean_T = 3*sqrt(1/12),sd_T=sqrt(1/12))
+dim(m.n.13a) <- c(3,reps,length(t_effect))               
+
+est.n.13a <-apply(m.n.13a,c(1,3),mean)[1,]
+bias.n.13a <- est.n.13-t_effect                                
+var.n.13a <- apply(m.n.13,c(1,3),var)[1,]              
+mse.n.13a <- var.n.13a + bias.n.13a^2
+
+prop_cont.n.13a <- apply(m.n.13a,c(1,3),mean)[2,]/n     
+discard_treat.n.13a <- apply(m.n.13a,c(1,3),mean)[3,]/n  
+
+```
+
+
+
+
+
+
+
+
+
+### Plotting the bias with different treatment effects - normal data - Close
+
+```{r, echo=FALSE}
+
+plot( bias.n.11, type = "l", col = "steelblue", ylim = c(0,0.05), xaxt = "n", 
+      ylab="Bias", xlab="True Treatment Effect")
+lines(bias.n.12, col = "red")
+lines(bias.n.13, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+
+### Plotting the bias with different treatment effects - normal data - FAR    
+
+```{r, echo=FALSE}
+
+plot( bias.n.11a, type = "l", col = "steelblue", ylim = c(0,2), xaxt = "n", 
+      ylab="Bias", xlab="True Treatment Effect")
+lines(bias.n.12a, col = "red")
+lines(bias.n.13a, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+
+### Plotting the variance with different treatment effects - normal data - Close
+
+```{r, echo=FALSE}
+
+plot( var.n.11, type = "l", col = "steelblue", ylim = c(0,0.03), xaxt = "n", 
+      ylab="Variance", xlab="True Treatment Effect")
+lines(var.n.12, col = "red")
+lines(var.n.13, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+### Plotting the variance with different treatment effects - normal data - Far
+
+```{r, echo=FALSE}
+
+plot( var.n.11a, type = "l", col = "steelblue", ylim = c(0,0.3), xaxt = "n", 
+      ylab="Variance", xlab="True treatment effect")
+lines(var.n.12a, col = "red")
+lines(var.n.13a, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+### Plotting the mse with different treatment effects - normal data - Close
+
+```{r, echo=FALSE}
+
+plot( mse.n.11, type = "l", col = "steelblue", ylim = c(0,0.03), xaxt = "n", 
+      ylab="Mean Squared Error", xlab="True Treatment Effect")
+lines(mse.n.12, col = "red")
+lines(mse.n.13, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+
+As with the uniform data, the variance does not change with the size of the treatment effect.
+
+### Plotting the mse with different treatment effects - normal data - Far
+
+```{r, echo=FALSE}
+
+plot( mse.n.11a, type = "l", col = "steelblue", ylim = c(0,3), xaxt = "n", 
+      ylab="Mean Squared Error", xlab="True Treatment Effect")
+lines(mse.n.12a, col = "red")
+lines(mse.n.13a, col = "green")
+
+axis(1,                         # Define x-axis manually
+     at = c(2,4,6,8),
+     labels = c(-2,-1,1,2))
+
+legend("topright", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+
+
+
+
+
+
+## Varying overlap
+
+-   normal distributions have a theoretically infinite range, however there is an area of overlap between two normal distributions. This can be called the "overlapping coefficient" (Imman, H.F. & Bradly Jr. E.L. 1989) and is calculated by finding the intersections of the distributions then adding the integrals of the lower distribution at each point. In this simulation normal distributions with equal standard deviations are used, so there is only one intersection midway between the 2 means. If the standard deviations of the control and treated groups are different, then there are two intersections.
+
+When the control and treated groups have intersection $x_1$, equal standard deviations, and means $\mu_C$ and $\mu_T$ , the area $\phi$ is
+
+$$ \phi = \min\left[\int^{x_1}_{-\infty}f(C)dx, \int_{-\infty}^{x_1}f(T)dx\right]  + \min\left[\int_{x_1}^{\infty}f(C)dx, \int^{\infty}_{x_1}f(T)dx\right]  $$
+
+#### simulation with normal distributions 14 - varying the overlap of the distributions - without replacement
+
+```{r overlap_norm_without, cache=TRUE, echo=FALSE}
+
+sd_norm = sqrt(1/12)
+mean_T <- seq(0,3*sd_norm,sd_norm) #mean C is fixed at 0
+reps <- 1000
+n=60
+set.seed(18)
+
+m.n.14<-mapply(g.x_norm,m=reps,mean_T=mean_T,n=n)
+dim(m.n.14) <- c(3,reps,length(mean_T))                  # change dimensions from list to 3d array
+
+est.n.14 <-apply(m.n.14,c(1,3),mean)[1,]
+bias.n.14 <- est.n.14-1                                #vector of biases for each sample size
+var.n.14 <- apply(m.n.14,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.14 <- var.n.14 + bias.n.14^2
+
+prop_cont.n.14 <- apply(m.n.14,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.14 <- apply(m.n.14,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+
+```
+
+#### simulation with normal distributions 15 - varying the overlap of the distributions - with replacement
+
+```{r overlap_norm_with, cache=TRUE, echo=FALSE}
+
+mean_T <- seq(0,3*sd_norm,sd_norm) #mean C is fixed at 0
+reps <- 1000
+n=60
+set.seed(18)
+
+m.n.15<-mapply(g.x_norm,m=reps,mean_T=mean_T,n=n, replace = TRUE)
+dim(m.n.15) <- c(3,reps,length(mean_T))                  # change dimensions from list to 3d array
+
+est.n.15 <-apply(m.n.15,c(1,3),mean)[1,]
+bias.n.15 <- est.n.15-1                                #vector of biases for each sample size
+var.n.15 <- apply(m.n.15,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.15 <- var.n.15 + bias.n.15^2
+
+prop_cont.n.15 <- apply(m.n.15,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.15 <- apply(m.n.15,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+#### simulation with normal distributions 16 - varying the overlap of the distributions - with caliper = 0.3
+
+```{r overlap_norm_caliper, cache=TRUE, echo=FALSE}
+
+mean_T <- seq(0,3*sd_norm,sd_norm) #mean C is fixed at 0
+reps <- 1000
+n=60
+set.seed(18)
+
+m.n.16<-mapply(g.x_norm,m=reps,mean_T=mean_T,n=n, replace = FALSE, distance = "logit", caliper = 0.3)
+dim(m.n.16) <- c(3,reps,length(mean_T))                  # change dimensions from list to 3d array
+
+est.n.16 <-apply(m.n.16,c(1,3),mean)[1,]
+bias.n.16 <- est.n.16-1                                #vector of biases for each sample size
+var.n.16 <- apply(m.n.16,c(1,3),var)[1,]               #vector of variances for each n
+mse.n.16 <- var.n.16 + bias.n.16^2
+
+prop_cont.n.16 <- apply(m.n.16,c(1,3),mean)[2,]/n      # average proportion of controls used - always n here
+discard_treat.n.16 <- apply(m.n.16,c(1,3),mean)[3,]/n  # average proportion discarded from treatment -always 0 here
+
+```
+
+### Plotting variance with different overlaps- normal data
+
+```{r, echo=FALSE}
+
+plot( mean_T,var.n.14, type = "l", col = "steelblue", ylim = c(0,0.2),  
+      xaxt = "n",
+      #main="Variance vs difference in group means", 
+      ylab="Variance", xlab="Difference between Group Means")
+lines(mean_T,var.n.15, col = "red")
+lines(mean_T,var.n.16, col = "green")
+
+axis(1,                         # Define x-axis manually
+    at = c(0,sd_norm,2*sd_norm,3*sd_norm),
+     labels = c("0","1sd","2sd","3sd"))
+
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+```
+
+Variance is not affected, this is as expected.
+
+### Plotting bias with different overlaps- normal data
+
+```{r}
+plot( mean_T,bias.n.14, type = "l", col = "steelblue", ylim = c(0,1.3),  
+      xaxt = "n", lwd=1.5,
+      #main="Variance vs difference in group means", 
+      ylab="Bias", xlab="Difference between Group Means")
+lines(mean_T,bias.n.15, col = "red", lwd=1.5)
+lines(mean_T,bias.n.16, col = "green",lwd=1.5)
+
+axis(1,                         # Define x-axis manually
+    at = c(0,sd_norm,2*sd_norm,3*sd_norm),
+     labels = c("0","1sd","2sd","3sd"))
+
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+
+```
+
+### Plotting MSE with different overlaps- normal data
+
+```{r}
+plot( mean_T,mse.n.14, type = "l", col = "steelblue", ylim = c(0,1.6),  
+      xaxt = "n", lwd=1.5,
+      #main="Variance vs difference in group means", 
+      ylab="Mean Squared Error", xlab="Difference between Group Means")
+lines(mean_T,mse.n.15, col = "red", lwd=1.5)
+lines(mean_T,mse.n.16, col = "green",lwd=1.5)
+
+axis(1,                         # Define x-axis manually
+    at = c(0,sd_norm,2*sd_norm,3*sd_norm),
+     labels = c("0","1sd","2sd","3sd"))
+
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "Without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+
+```
+
+
+
+
+### Plotting bias with different overlaps- normal data
+
+```{r}
+plot( mean_T,bias.n.14, type = "l", col = "steelblue", ylim = c(0,1.3),  
+      xaxt = "n", lwd=1.5,
+      #main="Variance vs difference in group means", 
+      ylab="Bias", xlab="Difference between Group Means")
+lines(mean_T,bias.n.15, col = "red", lwd=1.5)
+lines(mean_T,bias.n.16, col = "green",lwd=1.5)
+
+axis(1,                         # Define x-axis manually
+    at = c(0,sd_norm,2*sd_norm,3*sd_norm),
+     labels = c("0","1sd","2sd","3sd"))
+
+legend("topleft", 
+  legend = c("Without replacement", "With replacement", "without replacement, Caliper = 0.3"),
+  col = c( "steelblue", "red", "green"),
+  pch = 15) 
+
+```
+
+### unique controls used when overlap changes - for with replacement
+
+```{r}
+plot(mean_T,prop_cont.n.15, type = "l", col="dodgerblue", xaxt = "n", 
+     xlab = "Distance Between Group Means", ylim = c(0,1), lwd=1.5,
+     ylab = "Proportion of Unique Controls")
+abline(h=seq(0,1,0.2),col="lightgrey",lty=3)
+
+axis(1,                         # Define x-axis manually
+    at = c(0,sd_norm,2*sd_norm,3*sd_norm),
+     labels = c("0","1sd","2sd","3sd"))
+```
+
+### proportion of treated group discarded as overlap of treated and control distributions changes
+
+```{r}
+
+plot(mean_T,discard_treat.n.16, type = "l", col="dodgerblue", xaxt = "n", 
+     xlab = "Distance Between Group Means", ylim = c(0,1), lwd=1.5,
+     ylab = "Proportion Treated Discarded")
+abline(h=seq(0,1,0.2),col="lightgrey",lty=3)
+axis(1,                         # Define x-axis manually
+    at = c(0,sd_norm,2*sd_norm,3*sd_norm),
+     labels = c("0","1sd","2sd","3sd"))
+```
+
+
+
